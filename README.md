@@ -15,7 +15,11 @@ The script runs in your browser only. It has no server of its own and collects n
 ## Installation
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension for your browser (Chrome, Edge, Firefox, Safari or Opera).
-2. **Chrome / Edge only:** userscripts need extra permission there. Open the extensions page (`chrome://extensions` or `edge://extensions`), then either turn on **Developer mode**, or open Tampermonkey's **Details** and turn on **Allow user scripts**, depending on your browser version.
+2. **Chrome / Edge only:** userscripts need extra permission there. Open Tampermonkey's own page in the browser's extension settings:
+   - Right-click the Tampermonkey icon in the toolbar and choose **Manage extension**. This works in every version.
+   - In Chrome, with Tampermonkey installed from the Chrome Web Store, the page is currently `chrome://extensions/?id=dhdgffkkebhmkfjojejmpbldmpobfkfo`. Paste it into the address bar; links to `chrome://` pages can't be clicked. The address may change in the future, so use the right-click route if it doesn't open.
+
+   On that page turn on **Allow user scripts**. In older browser versions that option isn't there; turn on **Developer mode** at the top of the extensions page instead.
 3. Click this link: **[Install MAH Digikala Extensions](https://raw.githubusercontent.com/H-MAli/mah-digikala-extensions/main/mah-digikala.extensions.user.js)**
 4. Tampermonkey opens an install page. Click **Install**.
 5. Open or reload any Digikala page.
