@@ -4,7 +4,7 @@
 
 A userscript that adds a few handy tools to [Digikala](https://www.digikala.com):
 
-- **Table view for product listings.** On the Incredible Offers page and on category pages, a new header button opens every item in one full-page table that you can sort, group and filter, and export to CSV.
+- **Table view for product listings.** On the Incredible Offers page and on category, search, brand and seller pages, a new header button opens every item in one full-page table that you can sort, group and filter, and export to CSV.
 - **Dark mode.** A light / dark / system theme switch next to the notification bell, on every Digikala page (including the login and account pages).
 - **Price comparison.** On product pages, a button that looks the product up on Torob, Emalls and BaSalam, and on Amazon and eBay with prices converted to Toman.
 - **Watchlist and price alerts.** Follow products and get an alert when their price drops, reaches your target, or they're back in stock.
@@ -32,12 +32,18 @@ Open the Tampermonkey dashboard and delete **MAH Digikala Extensions**.
 
 ### Table view
 
-Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page or any category page (addresses like `digikala.com/search/category-…`). A list button appears in the header, next to the bell. Click it to open the table.
+Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page, a category page (`digikala.com/search/category-…`), search results (`digikala.com/search/?q=…`), a brand page (`digikala.com/brand/…`) or a seller page (`digikala.com/seller/…`). A list button appears in the header, next to the bell. Click it to open the table. The table keeps the page's own filters and sort order.
 
-- The first 1000 items load at once. Use **Load more** or **Load all** for the rest.
+- The first 1000 items load at once. Use **Load more** or **Load all** for the rest. Digikala serves at most 500 pages (10,000 items) of any list.
 - Click a column header to sort by it.
 - Group items by rating, discount percent, price range or discount amount.
-- Combine several filters to narrow the list.
+- Combine several filters to narrow the list, including the quick filters **low stock only**, **Digikala delivery only** and **Jet only**.
+- **Columns** chooses which columns are shown, and remembers your choice. Besides the price columns there are:
+  - **unit price**: per kilogram, litre or item, worked out from the size in the product's title. Sorting compares kilograms with kilograms and litres with litres.
+  - **seller** and **seller rating**
+  - **delivery**: from Digikala's warehouse, by Digikala or by the seller
+  - **Jet** eligibility
+  - **low stock**: "only N left", shown only when Digikala reports it
 - **Export CSV** saves exactly what the table currently shows, ready to open in Excel.
 
 ### Theme
@@ -115,7 +121,7 @@ Settings and data are kept only in your browser, in Tampermonkey's own storage. 
 
 ## Troubleshooting
 
-- **No button appears:** make sure the script is enabled in Tampermonkey and reload the page. The table button only shows on Incredible Offers and category pages, and the comparison button only on product pages.
+- **No button appears:** make sure the script is enabled in Tampermonkey and reload the page. The table button only shows on Incredible Offers, category, search, brand and seller pages, and the comparison button only on product pages.
 - **Chrome / Edge shows the script as installed but nothing happens:** see step 2 of the installation.
 - **A price-comparison tab is empty or shows an error:** that site may have changed its layout, may be blocking the request, or may need a VPN or the opposite from your location. Try again later.
 

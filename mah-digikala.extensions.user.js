@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.8.0
+// @version      1.9.0
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -81,6 +81,7 @@
     history: { freq: 'daily' },
     // watchlist alerts: price drop, back in stock, and whether to show them as desktop notifications too
     alerts: { drop: true, stock: true, desktop: false },
+    table: { cols: {} }, // column picker: { key: true | false } over each column's default
   };
   // Saved values over the defaults, one level deep, so settings added in later versions get their default.
   function mergeSettings(saved) {
@@ -233,6 +234,7 @@
       title,
       url: location.origin + path,
       img: /^https?:/.test(src) ? src : '',
+      unit: unitPrice(title, price),
       score,
       price,
       old,
@@ -258,6 +260,24 @@
       apiUrl: (m) => 'https://api.digikala.com/v1/categories/' + m[1] + '/search/',
       mergeCards: false,
     },
+    {
+      // https://www.digikala.com/search/?q=...  ->  /v1/search/?q=... (the query is passed on with the page's other parameters)
+      re: /^\/search\/?$/,
+      apiUrl: () => 'https://api.digikala.com/v1/search/',
+      mergeCards: false,
+    },
+    {
+      // https://www.digikala.com/brand/samsung/  ->  /v1/brands/samsung/
+      re: /^\/brand\/([^/]+)/,
+      apiUrl: (m) => 'https://api.digikala.com/v1/brands/' + m[1] + '/',
+      mergeCards: false,
+    },
+    {
+      // https://www.digikala.com/seller/5A52N/  ->  /v1/sellers/5A52N/  (not the /seller/pro/ landing pages)
+      re: /^\/seller\/(?!pro\/)([^/]+)/,
+      apiUrl: (m) => 'https://api.digikala.com/v1/sellers/' + m[1] + '/',
+      mergeCards: false,
+    },
   ];
 
   function pageType() {
@@ -266,6 +286,50 @@
       if (m) return Object.assign({ m }, t);
     }
     return null;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Unit price from the product title (see DISCLAIMER.md, section 4.5):
+   * a weight or volume ("۵۰۰ گرم", "۱.۵ لیتری"), times a pack count when there
+   * is one ("بسته ۶ عددی"); or just a pack count -> price per item.
+   * Dosages ("۵۰۰ میلی‌گرم") are ignored. Nothing when the title is unclear.
+   * ------------------------------------------------------------------ */
+  const UNIT_LABEL = { kg: 'کیلوگرم', l: 'لیتر', pc: 'عدد' };
+  const UNIT_RANK = { kg: 1, l: 2, pc: 3 }; // sorting compares like with like
+  function parseSize(title) {
+    let s = String(title || '')
+      .replace(/[۰-۹]/g, (d) => FA.indexOf(d))
+      .replace(/[٠-٩]/g, (d) => AR.indexOf(d))
+      .replace(/٫/g, '.')
+      .replace(/(\d),(\d)/g, '$1.$2')
+      .replace(/[\u200c\u200e\u200f]/g, ' ')
+      .replace(/ي/g, 'ی')
+      .toLowerCase();
+    const N = '(\\d+(?:\\.\\d+)?)';
+    const END = '(?![a-z\\u0600-\\u06ff])';
+    s = s.replace(new RegExp(N + '\\s*(?:میلی\\s*گرم|mg)' + END, 'g'), ' ');
+    const find = (unit) => { const m = s.match(new RegExp(N + '\\s*(?:' + unit + ')' + END)); return m ? parseFloat(m[1]) : null; };
+    let kg = find('کیلو\\s*گرمی?|کیلویی|کیلو|kg');
+    if (kg == null) { const g = find('گرمی?|gr|g'); if (g != null) kg = g / 1000; }
+    let l = null;
+    if (kg == null) {
+      const ml = find('میلی\\s*لیتری?|ml|سی\\s*سی|cc');
+      if (ml != null) l = ml / 1000;
+      else l = find('لیتری?|lit(?:er|re)?');
+    }
+    let count = null;
+    const pack = s.match(new RegExp('بسته\\s*' + N)) || s.match(new RegExp(N + '\\s*(?:عددی|تایی|عدد|pcs|pack)' + END));
+    if (pack) count = parseFloat(pack[1]);
+    if (!(count > 0 && count <= 1000)) count = null;
+    if (kg > 0) return { u: 'kg', q: kg * (count || 1) };
+    if (l > 0) return { u: 'l', q: l * (count || 1) };
+    if (count > 1) return { u: 'pc', q: count };
+    return null;
+  }
+  // -> { v: Tomans per unit, u } or null
+  function unitPrice(title, price) {
+    const sz = price > 0 ? parseSize(title) : null;
+    return sz && sz.q > 0 ? { v: price / sz.q, u: sz.u } : null;
   }
 
   /* ------------------------------------------------------------------ *
@@ -294,10 +358,21 @@
     const score = rt && rt.count > 0 && rt.rate > 0 ? Math.round((rt.rate / 20) * 10) / 10 : null; // 0-100 -> 0-5
     const uri = p.url && typeof p.url.uri === 'string' && p.url.uri.startsWith('/') ? p.url.uri : '/product/dkp-' + p.id + '/';
     const im = p.images && p.images.main && Array.isArray(p.images.main.url) ? p.images.main.url[0] : '';
+    const title = String(p.title_fa || p.title_en || '').trim();
+    const sel = v.seller || {};
+    const vp = v.properties || {};
+    const prov = ((v.shipment_methods || {}).providers || []).map((x) => x && x.type);
     return {
       key: String(p.id),
       id: String(p.id),
-      title: String(p.title_fa || p.title_en || '').trim(),
+      title,
+      unit: unitPrice(title, price),
+      seller: String(sel.title || '').trim() || null,
+      sellerRate: sel.stars > 0 ? Math.round(sel.stars * 10) / 10 : null,
+      ship: vp.in_digikala_warehouse ? 'dkw' : prov.includes('digikala') ? 'dk' : prov.includes('seller') || vp.is_ship_by_seller ? 'seller' : null,
+      jet: !!((p.digiplus && p.digiplus.is_jet_eligible) || (p.properties && p.properties.is_jet_eligible) || prov.includes('jet')),
+      // only reported when few are left
+      stock: typeof pr.marketable_stock === 'number' ? pr.marketable_stock : null,
       url: location.origin + uri,
       img: im ? String(im) : '', // keep the site's own resize parameters (custom sizes are rejected by the CDN)
       score,
@@ -522,6 +597,19 @@
     .rng input:focus { border-color: var(--n300); }
     .rng input.on { border-color: var(--p); background: var(--tint); }
     .filters .btn { height: 36px; padding: 0 12px; color: var(--p); }
+    .rngs { display: contents; }
+    .tg { display: inline-flex; align-items: center; gap: 6px; color: var(--n600); cursor: pointer; }
+    .tg input, .cp input { width: 15px; height: 15px; margin: 0; accent-color: var(--p); }
+    .colpick { position: relative; }
+    .cp { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 5; min-width: 220px; padding: 8px 12px;
+      background: var(--bg); border: 1px solid var(--n200); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14);
+      display: flex; flex-direction: column; gap: 2px; }
+    .cp[hidden] { display: none; }
+    .cp label { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; white-space: nowrap; }
+    td.nw { white-space: nowrap; }
+    td small { color: var(--n500); }
+    .low { color: #b26a00; font-weight: 700; }
+    .jet { display: inline-block; padding: 0 8px; border-radius: 6px; background: var(--n100); font-weight: 700; line-height: 22px; }
 
     /* scroll container is LTR so the scrollbar stays on the right, like the site */
     .scroll { flex: 1; overflow: auto; padding: 0 var(--pad) 40px; direction: ltr; }
@@ -665,19 +753,36 @@
     },
   };
 
+  // num: numeric, gets a min/max range filter automatically (the title is filtered with the search box)
+  // opt: can be hidden with the column picker; on: shown by default
   const COLS = [
     { key: 'idx', label: '#', sortable: false },
     { key: 'title', label: 'نام کالا' },
-    { key: 'score', label: 'امتیاز', num: true },
+    { key: 'score', label: 'امتیاز', num: true, opt: true, on: true },
     { key: 'price', label: 'قیمت (تومان)', num: true },
-    { key: 'old', label: 'قیمت قبل از تخفیف (تومان)', num: true },
-    { key: 'pct', label: 'درصد تخفیف', num: true },
-    { key: 'offAmt', label: 'مبلغ تخفیف (تومان)', num: true },
+    { key: 'old', label: 'قیمت قبل از تخفیف (تومان)', num: true, opt: true, on: true },
+    { key: 'pct', label: 'درصد تخفیف', num: true, opt: true, on: true },
+    { key: 'offAmt', label: 'مبلغ تخفیف (تومان)', num: true, opt: true, on: true },
+    { key: 'unit', label: 'قیمت واحد (تومان)', opt: true, on: true },
+    { key: 'seller', label: 'فروشنده', opt: true },
+    { key: 'sellerRate', label: 'امتیاز فروشنده', num: true, opt: true },
+    { key: 'ship', label: 'ارسال', opt: true },
+    { key: 'jet', label: 'جت', opt: true },
+    { key: 'stock', label: 'موجودی کم', num: true, opt: true },
   ];
-
-  // Every numeric column gets a min/max range filter automatically.
-  // (The title is filtered with the search box.)
-  const FILTER_COLS = COLS.filter((c) => c.num);
+  const DC_COL = { key: 'dc', label: 'بررسی تخفیف', sortable: false, opt: true, on: true };
+  const colOn = (c) => {
+    if (!c.opt) return true;
+    const v = settings().table.cols[c.key];
+    return typeof v === 'boolean' ? v : !!c.on;
+  };
+  const SHIP_LABEL = { dkw: 'انبار دیجی‌کالا', dk: 'ارسال دیجی‌کالا', seller: 'ارسال فروشنده' };
+  // quick filters (checkboxes next to the range filters)
+  const TOGGLES = [
+    { key: 'low', label: 'فقط موجودی کم', fn: (r) => r.stock != null },
+    { key: 'dk', label: 'فقط ارسال دیجی‌کالا', fn: (r) => r.ship === 'dk' || r.ship === 'dkw' },
+    { key: 'jet', label: 'فقط جت', fn: (r) => !!r.jet },
+  ];
 
   /* ------------------------------------------------------------------ *
    * Table modal
@@ -686,9 +791,11 @@
     const rows = src.rows; // grows in place when more items are loaded
     const root = getRoot();
     const hist = historyOn();
-    const cols = hist ? COLS.concat([{ key: 'dc', label: 'بررسی تخفیف', sortable: false }]) : COLS;
-    // st.f[key] = { min, max } (null = no limit on that side)
-    const st = { sort: [], group: 'none', groupDesc: false, q: '', f: {}, collapsed: new Set() };
+    const allCols = hist ? COLS.concat([DC_COL]) : COLS;
+    let cols = allCols.filter(colOn);
+    let fcols = cols.filter((c) => c.num);
+    // st.f[key] = { min, max } (null = no limit on that side); st.t[key] = quick filter on
+    const st = { sort: [], group: 'none', groupDesc: false, q: '', f: {}, t: {}, collapsed: new Set() };
 
     const prevOverflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = 'hidden';
@@ -696,7 +803,7 @@
     // Real min / max of every filterable column: shown as placeholders so you know what range makes sense.
     const bounds = {};
     function computeBounds() {
-      for (const c of FILTER_COLS) {
+      for (const c of allCols.filter((x) => x.num)) {
         let lo = Infinity;
         let hi = -Infinity;
         for (const r of rows) {
@@ -744,20 +851,21 @@
         <button class="btn" type="button" data-act="gorder" hidden></button>
         <button class="btn" type="button" data-act="collapse" hidden>بستن همه گروه‌ها</button>
         <button class="btn" type="button" data-act="expand" hidden>باز کردن همه گروه‌ها</button>
+        <span class="sp"></span>
+        <div class="colpick">
+          <button class="btn" type="button" data-act="cols" aria-expanded="false">ستون‌ها${svg('chevron', 16)}</button>
+          <div class="cp" hidden>${allCols.filter((c) => c.opt).map((c) =>
+            `<label><input type="checkbox" data-col="${c.key}"${colOn(c) ? ' checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>
+        </div>
       </div>
       <div class="filters">
-        ${FILTER_COLS.map(
-          (c) =>
-            `<div class="rng"><span class="rl">${esc(c.label)}</span>` +
-            `<input type="text" inputmode="decimal" autocomplete="off" data-f="${c.key}" data-b="min" placeholder="${esc(phText(c.key, 'min'))}">` +
-            `<span class="to">—</span>` +
-            `<input type="text" inputmode="decimal" autocomplete="off" data-f="${c.key}" data-b="max" placeholder="${esc(phText(c.key, 'max'))}"></div>`
-        ).join('')}
+        <div class="rngs"></div>
+        ${TOGGLES.map((t) => `<label class="tg"><input type="checkbox" data-tg="${t.key}"><span>${esc(t.label)}</span></label>`).join('')}
         <button class="btn" type="button" data-act="clear" hidden></button>
       </div>
       <div class="scroll">
         <table>
-          <thead><tr>${cols.map((c) => `<th data-key="${c.key}"></th>`).join('')}</tr></thead>
+          <thead><tr></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -774,11 +882,28 @@
     const $ = (s) => wrap.querySelector(s);
     const tbody = $('tbody');
 
+    // (Re)builds the header and the range filters for the visible columns, keeping typed filter values.
+    function applyCols() {
+      cols = allCols.filter(colOn);
+      fcols = cols.filter((c) => c.num);
+      $('thead tr').innerHTML = cols.map((c) => `<th data-key="${c.key}"></th>`).join('');
+      const keep = {};
+      wrap.querySelectorAll('input[data-f]').forEach((inp) => { keep[inp.dataset.f + '|' + inp.dataset.b] = inp.value; });
+      const inp = (c, side) => `<input type="text" inputmode="decimal" autocomplete="off" data-f="${c.key}" data-b="${side}" ` +
+        `placeholder="${esc(phText(c.key, side))}" value="${esc(keep[c.key + '|' + side] || '')}">`;
+      $('.rngs').innerHTML = fcols.map((c) =>
+        `<div class="rng"><span class="rl">${esc(c.label)}</span>${inp(c, 'min')}<span class="to">—</span>${inp(c, 'max')}</div>`).join('');
+      st.sort = st.sort.filter((x) => cols.some((c) => c.key === x.key));
+      readFilters();
+    }
+    applyCols();
+
     /* ---- sorting ---- */
+    const sortVal = (r, key) => (key === 'unit' ? (r.unit ? UNIT_RANK[r.unit.u] * 1e13 + r.unit.v : null) : r[key]);
     const cmp = (a, b) => {
       for (const { key, dir } of st.sort) {
-        const x = a[key];
-        const y = b[key];
+        const x = sortVal(a, key);
+        const y = sortVal(b, key);
         if (x == null && y == null) continue;
         if (x == null) return 1; // empty values always last
         if (y == null) return -1;
@@ -825,6 +950,7 @@
 
     // A row without a value in a filtered column (e.g. no discount, no rating) does not match that filter.
     function passesRanges(r) {
+      for (const t of TOGGLES) if (st.t[t.key] && !t.fn(r)) return false;
       for (const key in st.f) {
         const rg = st.f[key];
         if (!rangeActive(rg)) continue;
@@ -837,7 +963,7 @@
     }
 
     const activeCount = () =>
-      Object.values(st.f).filter(rangeActive).length + (st.q.trim() ? 1 : 0);
+      Object.values(st.f).filter(rangeActive).length + Object.values(st.t).filter(Boolean).length + (st.q.trim() ? 1 : 0);
 
     function readFilters() {
       const f = {};
@@ -859,19 +985,28 @@
     }
 
     /* ---- view ---- */
-    const rowHtml = (r, i) =>
-      `<tr><td class="idx">${L(i)}</td>` +
-      `<td><div class="nm">${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" decoding="async">` : '<i></i>'}` +
-      `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` +
-      (hist ? `<button class="star${watched.has(r.id) ? ' on' : ''}" type="button" data-act="star" data-id="${esc(r.id)}" title="${watched.has(r.id) ? 'حذف از فهرست پیگیری' : 'افزودن به فهرست پیگیری'}">${watched.has(r.id) ? '★' : '☆'}</button>` : '') +
-      '</div></td>' +
-      `<td class="num">${r.score == null ? '<span class="dash">—</span>' : `<span class="rate">${svg('star', 14)}${fmtScore(r.score)}</span>`}</td>` +
-      `<td class="num price">${fmt(r.price)}</td>` +
-      `<td class="num old">${r.old == null ? '<span class="dash">—</span>' : fmt(r.old)}</td>` +
-      `<td class="num">${r.pct ? `<span class="pill">${L(r.pct)}${PCT}</span>` : '<span class="dash">—</span>'}</td>` +
-      `<td class="num">${r.offAmt == null ? '<span class="dash">—</span>' : fmt(r.offAmt)}</td>` +
-      (hist ? `<td><div class="dcb">${r.old && discountAcked() ? dcHtml(cachedCheck(r.id), true) : '<span class="dash">—</span>'}</div></td>` : '') +
-      '</tr>';
+    const dash = '<span class="dash">—</span>';
+    const CELL = {
+      idx: (r, i) => `<td class="idx">${L(i)}</td>`,
+      title: (r) =>
+        `<td><div class="nm">${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" decoding="async">` : '<i></i>'}` +
+        `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` +
+        (hist ? `<button class="star${watched.has(r.id) ? ' on' : ''}" type="button" data-act="star" data-id="${esc(r.id)}" title="${watched.has(r.id) ? 'حذف از فهرست پیگیری' : 'افزودن به فهرست پیگیری'}">${watched.has(r.id) ? '★' : '☆'}</button>` : '') +
+        '</div></td>',
+      score: (r) => `<td class="num">${r.score == null ? dash : `<span class="rate">${svg('star', 14)}${fmtScore(r.score)}</span>`}</td>`,
+      price: (r) => `<td class="num price">${fmt(r.price)}</td>`,
+      old: (r) => `<td class="num old">${r.old == null ? dash : fmt(r.old)}</td>`,
+      pct: (r) => `<td class="num">${r.pct ? `<span class="pill">${L(r.pct)}${PCT}</span>` : dash}</td>`,
+      offAmt: (r) => `<td class="num">${r.offAmt == null ? dash : fmt(r.offAmt)}</td>`,
+      unit: (r) => `<td class="nw">${r.unit ? `<b>${fmt(r.unit.v)}</b> <small>هر ${UNIT_LABEL[r.unit.u]}</small>` : dash}</td>`,
+      seller: (r) => `<td>${r.seller ? esc(r.seller) : dash}</td>`,
+      sellerRate: (r) => `<td class="num">${r.sellerRate == null ? dash : `<span class="rate">${svg('star', 14)}${fmtScore(r.sellerRate)}</span>`}</td>`,
+      ship: (r) => `<td class="nw">${r.ship ? SHIP_LABEL[r.ship] : dash}</td>`,
+      jet: (r) => `<td>${r.jet ? '<span class="jet">جت</span>' : dash}</td>`,
+      stock: (r) => `<td class="nw">${r.stock == null ? dash : `<span class="low">تنها ${L(r.stock)} عدد</span>`}</td>`,
+      dc: (r) => `<td><div class="dcb">${r.old && discountAcked() ? dcHtml(cachedCheck(r.id), true) : dash}</div></td>`,
+    };
+    const rowHtml = (r, i) => '<tr>' + cols.map((c) => CELL[c.key](r, i)).join('') + '</tr>';
 
     const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
 
@@ -940,11 +1075,17 @@
       };
       const list = currentList();
       const grouped = st.group !== 'none';
-      const head = ['نام کالا', 'امتیاز', 'قیمت (تومان)', 'قیمت قبل از تخفیف (تومان)', 'درصد تخفیف', 'مبلغ تخفیف (تومان)', 'لینک'];
+      const ccols = cols.filter((c) => c.key !== 'idx' && c.key !== 'dc');
+      const CSV_VAL = {
+        unit: (r) => (r.unit ? Math.round(r.unit.v) + ' / ' + UNIT_LABEL[r.unit.u] : null),
+        ship: (r) => (r.ship ? SHIP_LABEL[r.ship] : null),
+        jet: (r) => (r.jet ? 'جت' : null),
+      };
+      const head = ccols.map((c) => c.label).concat(['لینک']);
       if (grouped) head.push('گروه: ' + GROUPERS[st.group].label);
       const lines = [head.map(cell).join(',')];
       const push = (r, g) => {
-        const row = [r.title, r.score, r.price, r.old, r.pct, r.offAmt, r.url];
+        const row = ccols.map((c) => (CSV_VAL[c.key] ? CSV_VAL[c.key](r) : r[c.key])).concat([r.url]);
         if (grouped) row.push(g);
         lines.push(row.map(cell).join(','));
       };
@@ -1074,8 +1215,14 @@
         return;
       }
       const act = e.target.closest('[data-act]');
+      const cp = $('.cp');
+      if (!cp.hidden && !e.target.closest('.colpick')) { cp.hidden = true; $('[data-act=cols]').setAttribute('aria-expanded', 'false'); }
       if (!act) return;
       switch (act.dataset.act) {
+        case 'cols':
+          cp.hidden = !cp.hidden;
+          act.setAttribute('aria-expanded', String(!cp.hidden));
+          break;
         case 'close': close(); break;
         case 'csv': exportCsv(); break;
         case 'dcheck': checkDiscounts(); break;
@@ -1096,8 +1243,10 @@
         case 'clear':
           wrap.querySelectorAll('input[data-f]').forEach((inp) => { inp.value = ''; });
           $('.q').value = '';
+          wrap.querySelectorAll('input[data-tg]').forEach((inp) => { inp.checked = false; });
           st.q = '';
           st.f = {};
+          st.t = {};
           st.collapsed.clear();
           render();
           break;
@@ -1118,6 +1267,19 @@
       // host once dispatch finishes, so it can't be read from the timeout callback.
       const input = e.currentTarget;
       t = setTimeout(() => { st.q = String(input.value || ''); render(); }, 150);
+    });
+
+    wrap.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.dataset.col) {
+        updateSettings((s) => { s.table.cols[t.dataset.col] = t.checked; });
+        applyCols();
+        render();
+      } else if (t.dataset.tg) {
+        st.t[t.dataset.tg] = t.checked;
+        st.collapsed.clear();
+        render();
+      }
     });
 
     // Range filters: Persian / Arabic / Latin digits and thousands separators are all accepted.
@@ -3222,7 +3384,7 @@
     { key: 'about', label: 'درباره' },
   ];
   const FEATURE_ROWS = [
-    { key: 'table', label: 'جدول کالاها', hint: 'دکمه‌ی «جدول کالاها» در شگفت‌انگیزها و صفحه‌های دسته‌بندی' },
+    { key: 'table', label: 'جدول کالاها', hint: 'دکمه‌ی «جدول کالاها» در شگفت‌انگیزها و صفحه‌های دسته‌بندی، جستجو، برند و فروشنده' },
     { key: 'theme', label: 'حالت نمایش', hint: 'دکمه‌ی روشن / تاریک / سیستم کنار زنگ اعلان؛ اگر خاموش باشد سایت روشن نمایش داده می‌شود' },
     { key: 'compare', label: 'مقایسه‌ی قیمت', hint: 'دکمه‌ی «مقایسه قیمت» در صفحه‌ی کالا' },
     { key: 'history', label: 'سابقه‌ی قیمت و بررسی تخفیف', hint: 'ثبت قیمت‌ها در همین مرورگر، نمودار قیمت و بررسی تخفیف در صفحه‌ی کالا و جدول' },

@@ -80,8 +80,9 @@ This follows the approach many consumer-protection rules use for sale prices (fo
 ### 4.5 Unit price
 
 - The unit price (per kilogram, litre or item) comes from sizes written in the product's title, for example "۵۰۰ گرم" or "بسته ۶ عددی", divided into the selling price.
+- A pack count is multiplied in ("۶ عددی ۵۰۰ گرمی" = 3 kg). Dosages such as "۵۰۰ میلی‌گرم" are ignored.
 - When the title is unclear, nothing is shown.
-- Titles can be wrong or ambiguous, so the unit price can be wrong too.
+- Titles can be wrong or ambiguous, so the unit price can be wrong too. A size that describes something else, such as the capacity of a kettle, also produces a price per litre that means little.
 
 ### 4.6 Price comparison with other shops
 
