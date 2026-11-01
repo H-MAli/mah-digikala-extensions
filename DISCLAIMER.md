@@ -38,7 +38,7 @@ This section describes exactly how the script produces each piece of information
   - the selling price
   - the reference price, if any
   - whether the product was available
-  - the US dollar to Toman exchange rate for that day
+  - the US dollar to Toman exchange rate for that day (kept once per day for all records of that day)
 - **Exchange rates** come from open.er-api.com, unless the user enters their own rate. Rates are approximate and may differ from Iran's open-market rate.
 - **Price comparison** results come from public search pages and endpoints of the listed sites, searched by the product's name.
 
@@ -47,13 +47,14 @@ This section describes exactly how the script produces each piece of information
 - It sends requests only while the user has a Digikala tab open, and only for pages the user opens or products the user has added to the watchlist.
 - Watchlist checks run one product at a time, about 1.5 seconds apart, at the frequency the user chose (default: once a day).
 - The table view loads list pages the same way Digikala's own infinite scroll does, when the user opens the table or asks for more items.
+- In the table, **Check discounts** fetches the price history of at most 100 products per press, one at a time, about 1.5 seconds apart. Results are kept for one day.
 
 ### 4.3 Discount check
 
 The discount check runs only when Digikala shows a discount for a product: a selling price below a reference price. It runs two tests and shows the result of each:
 
 1. **Compared with the 30-day lowest price.**
-   - The "discount start" is the first day of the current unbroken run of days on which the product showed a discount.
+   - The "discount start" is the first day of the current unbroken run of days on which the product showed a discount. Days on which the product was out of stock don't interrupt the run. Up to 3 days in a row without data are tolerated; a longer gap ends it.
    - The script finds the lowest selling price on days the product was available, during the 30 days before the discount start.
    - Result: the current selling price is either **"lower than the 30-day lowest price"** or **"not lower than the 30-day lowest price"**.
 2. **Reference price seen as a selling price.**

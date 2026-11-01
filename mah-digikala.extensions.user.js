@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.6.0
+// @version      1.7.0
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -10,8 +10,8 @@
 // @supportURL   https://github.com/H-MAli/mah-digikala-extensions/issues
 // @updateURL    https://raw.githubusercontent.com/H-MAli/mah-digikala-extensions/main/mah-digikala.extensions.user.js
 // @downloadURL  https://raw.githubusercontent.com/H-MAli/mah-digikala-extensions/main/mah-digikala.extensions.user.js
-// @description  Enhancements for Digikala: a sortable, filterable table view for product listings, a light / dark theme switcher, and price comparison with other shops.
-// @description:fa  بهبودهایی برای دیجی‌کالا: نمای جدولی کالاها با مرتب‌سازی و فیلتر، انتخاب حالت نمایش روشن / تاریک، و مقایسه‌ی قیمت با فروشگاه‌های دیگر.
+// @description  Enhancements for Digikala: a sortable, filterable table view for product listings, a light / dark theme switcher, price comparison with other shops, and price history with a discount check.
+// @description:fa  بهبودهایی برای دیجی‌کالا: نمای جدولی کالاها با مرتب‌سازی و فیلتر، انتخاب حالت نمایش روشن / تاریک، مقایسه‌ی قیمت با فروشگاه‌های دیگر، و سابقه‌ی قیمت با بررسی تخفیف.
 // @match        https://www.digikala.com/*
 // @match        https://auth.digikala.com/*
 // @match        https://accounts.digikala.com/*
@@ -73,8 +73,11 @@
   const SETTINGS_KEY = 'settings';
   const DEFAULT_SETTINGS = {
     digits: 'fa', // 'fa' = Persian digits (like the site), 'en' = Latin digits
-    features: { table: true, theme: true, compare: true },
+    features: { table: true, theme: true, compare: true, history: true },
     shops: { torob: true, emalls: true, basalam: true, foreign: true }, // price-comparison tabs
+    // how prices are recorded: 'manual' (button on the product page only), 'visit' (when a product page is opened),
+    // or a schedule ('6h' | '12h' | 'daily' | 'weekly') for the watchlist on top of 'visit'
+    history: { freq: 'daily' },
   };
   // Saved values over the defaults, one level deep, so settings added in later versions get their default.
   function mergeSettings(saved) {
@@ -590,7 +593,7 @@
       document.documentElement.appendChild(host);
       const root = host.attachShadow({ mode: 'open' });
       const st = document.createElement('style');
-      st.textContent = CSS;
+      st.textContent = CSS + DC_CSS;
       root.appendChild(st);
     }
     return host.shadowRoot;
@@ -675,6 +678,8 @@
   function showTable(src) {
     const rows = src.rows; // grows in place when more items are loaded
     const root = getRoot();
+    const hist = historyOn();
+    const cols = hist ? COLS.concat([{ key: 'dc', label: 'بررسی تخفیف', sortable: false }]) : COLS;
     // st.f[key] = { min, max } (null = no limit on that side)
     const st = { sort: [], group: 'none', groupDesc: false, q: '', f: {}, collapsed: new Set() };
 
@@ -715,6 +720,7 @@
           <span class="chip" data-count></span>
         </div>
         <span class="sp"></span>
+        ${hist ? '<button class="btn" type="button" data-act="dcheck" title="بررسی تخفیف کالاهای تخفیف‌دار فهرست فعلی (حداکثر ۱۰۰ کالا در هر بار)">بررسی تخفیف‌ها</button>' : ''}
         <button class="btn" type="button" data-act="csv">${svg('download', 18)}<span>خروجی CSV</span></button>
         <button class="btn ghost" type="button" data-act="close" title="بستن">${svg('close', 22)}</button>
       </div>
@@ -744,7 +750,7 @@
       </div>
       <div class="scroll">
         <table>
-          <thead><tr>${COLS.map((c) => `<th data-key="${c.key}"></th>`).join('')}</tr></thead>
+          <thead><tr>${cols.map((c) => `<th data-key="${c.key}"></th>`).join('')}</tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -794,7 +800,7 @@
 
     function renderHead() {
       wrap.querySelectorAll('th').forEach((th) => {
-        const col = COLS.find((c) => c.key === th.dataset.key);
+        const col = cols.find((c) => c.key === th.dataset.key);
         const i = st.sort.findIndex((s) => s.key === col.key);
         th.className = (i !== -1 ? 'on ' : '') + (col.sortable === false ? 'nosort' : '');
         let ind = '';
@@ -854,7 +860,9 @@
       `<td class="num price">${fmt(r.price)}</td>` +
       `<td class="num old">${r.old == null ? '<span class="dash">—</span>' : fmt(r.old)}</td>` +
       `<td class="num">${r.pct ? `<span class="pill">${L(r.pct)}${PCT}</span>` : '<span class="dash">—</span>'}</td>` +
-      `<td class="num">${r.offAmt == null ? '<span class="dash">—</span>' : fmt(r.offAmt)}</td></tr>`;
+      `<td class="num">${r.offAmt == null ? '<span class="dash">—</span>' : fmt(r.offAmt)}</td>` +
+      (hist ? `<td><div class="dcb">${r.old && discountAcked() ? dcHtml(cachedCheck(r.id), true) : '<span class="dash">—</span>'}</div></td>` : '') +
+      '</tr>';
 
     const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
 
@@ -888,7 +896,7 @@
       syncFilterUi();
 
       if (!list.length) {
-        tbody.innerHTML = `<tr><td colspan="${COLS.length}" class="empty">کالایی با این مشخصات پیدا نشد.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${cols.length}" class="empty">کالایی با این مشخصات پیدا نشد.</td></tr>`;
         return;
       }
       const out = [];
@@ -901,7 +909,7 @@
           const ap = avg(g.items.map((r) => r.price));
           const ao = avg(g.items.filter((r) => r.pct).map((r) => r.pct));
           out.push(
-            `<tr class="grp${closed ? ' closed' : ''}" data-g="${esc(g.label)}"><td colspan="${COLS.length}"><div class="gh">` +
+            `<tr class="grp${closed ? ' closed' : ''}" data-g="${esc(g.label)}"><td colspan="${cols.length}"><div class="gh">` +
             `${svg('chevron', 18)}<b>${esc(g.label)}</b><span class="chip">${L(g.items.length)} کالا</span>` +
             `<span class="meta">میانگین قیمت ${fmt(ap)} تومان` +
             `${ao == null ? '' : ' · میانگین تخفیف ' + L(Math.round(ao)) + PCT}</span></div></td></tr>`
@@ -997,16 +1005,39 @@
       }
       loading = false;
       stopCtl = null;
+      recordRows(rows);
       if (closed) return;
       refreshBounds();
       render();
       syncMoreUi();
     }
 
+    /* ---- discount check for the rows on screen: up to DC_BATCH, one at a time ---- */
+    const DC_BATCH = 100;
+    let dcRun = null;
+    async function checkDiscounts() {
+      const btn = $('[data-act=dcheck]');
+      if (dcRun) { dcRun.stopped = true; return; } // second press stops
+      if (!(await ensureDiscountAck())) return;
+      render();
+      const todo = currentList().filter((r) => r.old && r.id && !cachedCheck(r.id)).slice(0, DC_BATCH);
+      if (!todo.length) { btn.textContent = 'همه‌ی کالاهای تخفیف‌دار بررسی شده‌اند'; return; }
+      const run = (dcRun = { stopped: false });
+      for (let i = 0; i < todo.length && !run.stopped && !closed; i++) {
+        btn.textContent = 'توقف بررسی (' + L(i + 1) + ' از ' + L(todo.length) + ')';
+        try { await checkProduct(todo[i].id, obsFromRow(todo[i])); } catch (e) { /* skip this one */ }
+        if (!closed) render();
+        if (i < todo.length - 1) await sleep(1500);
+      }
+      dcRun = null;
+      if (!closed) btn.textContent = 'بررسی تخفیف‌ها';
+    }
+
     /* ---- events ---- */
     function close() {
       closed = true;
       if (stopCtl) stopCtl.stopped = true;
+      if (dcRun) dcRun.stopped = true;
       document.removeEventListener('keydown', onKey, true);
       document.documentElement.style.overflow = prevOverflow;
       wrap.remove();
@@ -1036,6 +1067,7 @@
       switch (act.dataset.act) {
         case 'close': close(); break;
         case 'csv': exportCsv(); break;
+        case 'dcheck': checkDiscounts(); break;
         case 'gorder': st.groupDesc = !st.groupDesc; syncGroupUi(); render(); break;
         case 'collapse': groupsOf(currentList()).forEach((g) => st.collapsed.add(g.label)); render(); break;
         case 'expand': st.collapsed.clear(); render(); break;
@@ -1286,8 +1318,11 @@
 
     applyVTheme();
 
-    const host = document.getElementById(HOST_ID); // the table's shadow host follows the page
-    if (host && host.getAttribute(THEME_ATTR) !== mode) host.setAttribute(THEME_ATTR, mode);
+    // our shadow hosts (table and dialogs, product-page strip, chart section) follow the page
+    for (const hid of [HOST_ID, STRIP_ID, MODAL_SEC_ID]) {
+      const host = document.getElementById(hid);
+      if (host && host.getAttribute(THEME_ATTR) !== mode) host.setAttribute(THEME_ATTR, mode);
+    }
     syncThemeButton();
   }
 
@@ -2151,6 +2186,696 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Price history: the script's own records
+   * Kept per product under "h:<id>" as { t: title, r: runs }, where each run is
+   * [from, to, price, rrp, avail]: times in ms, prices in Tomans, rrp 0 when
+   * there is no reference ("before discount") price, avail 1 / 0. A run is
+   * extended while the values stay the same and observations are at most
+   * RUN_GAP apart, so gaps in observation stay visible.
+   * Dollar rates are kept per day under "fx": { "2026-11-01": [auto, manual] }.
+   * The method is described in DISCLAIMER.md: keep the two in step.
+   * ------------------------------------------------------------------ */
+  const DAY = 864e5;
+  const KEEP_MS = 365 * DAY;
+  const RUN_GAP = 1.5 * DAY;
+  const HKEY = (id) => 'h:' + id;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const dayKey = (ts) => { const d = new Date(ts); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+  const addDays = (key, n) => new Date(Date.parse(key + 'T00:00:00Z') + n * DAY).toISOString().slice(0, 10);
+  const DATE_LOCALE = LOCALE === 'fa-IR' ? 'fa-IR' : 'fa-IR-u-nu-latn'; // Persian calendar either way
+  const fmtDate = (ts, opts) => new Date(ts).toLocaleDateString(DATE_LOCALE, opts || { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const historyOn = () => feature('history');
+  const autoRecord = () => historyOn() && settings().history.freq !== 'manual';
+
+  // Adds one observation to a product's runs; false when nothing changed (same values already recorded today).
+  function addObservation(h, ts, price, rrp, avail) {
+    const runs = h.r;
+    const last = runs[runs.length - 1];
+    if (last && ts < last[1]) return false; // older than what is already there
+    if (last && last[2] === price && last[3] === rrp && last[4] === avail && ts - last[1] <= RUN_GAP) {
+      if (dayKey(last[1]) === dayKey(ts)) return false;
+      last[1] = ts;
+      return true;
+    }
+    runs.push([ts, ts, price, rrp, avail]);
+    return true;
+  }
+
+  // Writes are queued and flushed in small batches: a table can add thousands of products at once.
+  const histPending = new Map();
+  let histFlushTimer = null;
+  function getHist(id) {
+    return histPending.get(id) || store.get(HKEY(id)) || { t: '', r: [] };
+  }
+  function flushHist() {
+    histFlushTimer = null;
+    let n = 0;
+    for (const [id, h] of histPending) {
+      store.set(HKEY(id), h);
+      histPending.delete(id);
+      if (++n >= 50) { histFlushTimer = setTimeout(flushHist, 50); return; }
+    }
+  }
+  // obs = { price, rrp, avail } (Tomans); force = record even in manual mode (the "record price" button)
+  function recordPrice(id, obs, title, force) {
+    if (!id || !obs || !(force ? historyOn() : autoRecord())) return false;
+    const h = getHist(id);
+    if (title) h.t = String(title).slice(0, 200);
+    if (!addObservation(h, Date.now(), Math.round(obs.price || 0), Math.round(obs.rrp || 0), obs.avail ? 1 : 0)) return false;
+    histPending.set(id, h);
+    if (!histFlushTimer) histFlushTimer = setTimeout(flushHist, 0);
+    noteFxToday();
+    return true;
+  }
+  const obsFromRow = (r) => ({ price: r.price, rrp: r.old || 0, avail: 1 }); // table rows are in stock
+  function recordRows(rows) {
+    if (!autoRecord()) return;
+    for (const r of rows) {
+      if (r.recorded || !r.id) continue;
+      r.recorded = true;
+      recordPrice(r.id, obsFromRow(r), r.title);
+    }
+  }
+
+  // The day's dollar rates, saved alongside the price records.
+  let fxNoted = null;
+  async function noteFxToday() {
+    const today = dayKey(Date.now());
+    const manual = manualRate();
+    if (fxNoted === today + ':' + manual) return;
+    fxNoted = today + ':' + manual;
+    const rates = await getRates();
+    const auto = rates && rates.IRR ? Math.round(rates.IRR / 10) : null;
+    const fx = store.get('fx', {});
+    const prev = fx[today] || [null, null];
+    fx[today] = [auto || prev[0], manual || prev[1]];
+    store.set('fx', fx);
+  }
+
+  // Drops runs older than a year (and empty products); runs at most once a day.
+  function pruneHistory() {
+    const now = Date.now();
+    if (now - store.get('hPruned', 0) < DAY) return;
+    store.set('hPruned', now);
+    for (const k of store.keys()) {
+      if (k.indexOf('h:') !== 0) continue;
+      const h = store.get(k);
+      const runs = h && Array.isArray(h.r) ? h.r.filter((x) => x[1] >= now - KEEP_MS) : [];
+      if (!runs.length) store.del(k);
+      else if (runs.length !== h.r.length) { h.r = runs; store.set(k, h); }
+    }
+    const cut = dayKey(now - KEEP_MS);
+    const fx = store.get('fx', {});
+    for (const d of Object.keys(fx)) if (d < cut) delete fx[d];
+    store.set('fx', fx);
+    const dc = store.get('dc', {});
+    for (const id of Object.keys(dc)) if (now - dc[id].ts > 7 * DAY) delete dc[id];
+    store.set('dc', dc);
+  }
+
+  function deleteHistory() {
+    histPending.clear();
+    for (const k of store.keys()) if (k.indexOf('h:') === 0) store.del(k);
+    store.del('fx');
+    store.del('dc');
+  }
+  const historyCount = () => store.keys().filter((k) => k.indexOf('h:') === 0).length;
+
+  /* ------------------------------------------------------------------ *
+   * Digikala's own price chart: daily selling / reference price and
+   * availability, as shown in its "نمودار قیمت" window. Days are dates of
+   * the Persian calendar ("1404-08-10"); prices are in Rials.
+   * ------------------------------------------------------------------ */
+  function jalaliToGregorian(jy, jm, jd) {
+    jy += 1595;
+    let days = -355668 + 365 * jy + Math.floor(jy / 33) * 8 + Math.floor(((jy % 33) + 3) / 4) + jd +
+      (jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186);
+    let gy = 400 * Math.floor(days / 146097);
+    days %= 146097;
+    if (days > 36524) {
+      gy += 100 * Math.floor(--days / 36524);
+      days %= 36524;
+      if (days >= 365) days++;
+    }
+    gy += 4 * Math.floor(days / 1461);
+    days %= 1461;
+    if (days > 365) {
+      gy += Math.floor((days - 1) / 365);
+      days = (days - 1) % 365;
+    }
+    let gd = days + 1;
+    const ml = [0, 31, (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let gm = 1;
+    for (; gm <= 12 && gd > ml[gm]; gm++) gd -= ml[gm];
+    return [gy, gm, gd];
+  }
+  // "1404-08-10" or "1404/08/10" (Persian) or "2025-11-01" (Gregorian) -> "2025-11-01"
+  function dkDayKey(s) {
+    const [y, m, d] = String(s || '').split(/[-/]/).map((x) => parseInt(latin(x), 10));
+    if (!y || !m || !d) return null;
+    const g = y < 1700 ? jalaliToGregorian(y, m, d) : [y, m, d];
+    return g[0] + '-' + pad2(g[1]) + '-' + pad2(g[2]);
+  }
+
+  // -> [{ title, days: Map(dayKey -> { price, rrp, avail }) }]  (empty when Digikala has no chart)
+  const dkChartCache = new Map();
+  function fetchDkChart(id) {
+    const hit = dkChartCache.get(id);
+    if (hit && Date.now() - hit.at < 10 * 60e3) return hit.p;
+    const p = fetch('https://api.digikala.com/v1/product/' + id + '/price-chart/', { credentials: 'include', headers: { Accept: 'application/json' } })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then((j) => {
+        const list = (j && j.data && j.data.price_chart) || [];
+        return (Array.isArray(list) ? list : []).map((s) => {
+          const days = new Map();
+          for (const pt of s.history || []) {
+            const k = dkDayKey(pt.day);
+            if (!k || !(pt.selling_price > 0)) continue;
+            days.set(k, { price: pt.selling_price / 10, rrp: pt.rrp_price > 0 ? pt.rrp_price / 10 : 0, avail: pt.is_marketable ? 1 : 0 });
+          }
+          return { title: String(s.title || ''), days };
+        }).filter((s) => s.days.size);
+      });
+    p.catch(() => dkChartCache.delete(id));
+    dkChartCache.set(id, { at: Date.now(), p });
+    return p;
+  }
+
+  // The series that matches what the page shows now (the default variant), else the first one.
+  function pickDkSeries(series, cur) {
+    if (!series.length) return null;
+    if (cur && cur.price) {
+      for (const s of series) {
+        const last = [...s.days.keys()].sort().pop();
+        const v = s.days.get(last);
+        if (v && Math.abs(v.price - cur.price) <= 0.01 * cur.price) return s;
+      }
+    }
+    return series[0];
+  }
+
+  // Day -> { price, rrp, avail, src }: Digikala's days first, the script's own records fill the rest.
+  function mergedDays(dkSeries, runs) {
+    const days = new Map();
+    if (dkSeries) for (const [k, v] of dkSeries.days) days.set(k, Object.assign({ src: 'dk' }, v));
+    for (const [from, to, price, rrp, avail] of runs || []) {
+      for (let k = dayKey(from), end = dayKey(to); k <= end; k = addDays(k, 1)) {
+        if (!days.has(k)) days.set(k, { price, rrp, avail, src: 'own' });
+      }
+    }
+    return days;
+  }
+
+  /* Discount check (see DISCLAIMER.md, section 4.3). Runs only when a discount is shown (rrp > price).
+   *  - discount start: first day of the unbroken run of discounted days that ends today
+   *    (days without data are tolerated up to 3 in a row; out-of-stock days are skipped)
+   *  - window: the 30 days before the discount start; only in-stock days with data count
+   *  - fewer than 7 usable days -> 'insufficient'
+   *  - below: current price lower than the window's lowest price; refSeen: the reference
+   *    price was the selling price on at least one day. Differences under 1% count as equal. */
+  const MIN_DAYS = 7;
+  const WINDOW_DAYS = 30;
+  const near = (a, b) => Math.abs(a - b) <= 0.01 * Math.max(a, b);
+  function discountCheck(cur, days, today) {
+    if (!cur || !cur.avail || !(cur.rrp > cur.price)) return { status: 'none' };
+    let start = today;
+    let gap = 0;
+    for (let k = addDays(today, -1), i = 0; i < 400; i++, k = addDays(k, -1)) {
+      const v = days.get(k);
+      if (!v) { if (++gap > 3) break; continue; }
+      gap = 0;
+      if (!v.avail) continue;
+      if (!(v.rrp > v.price)) break;
+      start = k;
+    }
+    const usable = [];
+    for (let i = 1; i <= WINDOW_DAYS; i++) {
+      const v = days.get(addDays(start, -i));
+      if (v && v.avail && v.price > 0) usable.push(v);
+    }
+    if (usable.length < MIN_DAYS) return { status: 'insufficient', start, usable: usable.length };
+    const low = Math.min(...usable.map((v) => v.price));
+    return {
+      status: 'ok',
+      start,
+      usable: usable.length,
+      low,
+      below: cur.price < low && !near(cur.price, low),
+      refSeen: usable.some((v) => near(v.price, cur.rrp)),
+    };
+  }
+
+  // Runs the check for one product and keeps the result for a day (used by the table).
+  async function checkProduct(id, cur) {
+    let dk = null;
+    try { dk = pickDkSeries(await fetchDkChart(id), cur); } catch (e) { /* Digikala's data unavailable: own records only */ }
+    const res = discountCheck(cur, mergedDays(dk, getHist(id).r), dayKey(Date.now()));
+    const dc = store.get('dc', {});
+    dc[id] = Object.assign({ ts: Date.now() }, res);
+    store.set('dc', dc);
+    return { res, dk };
+  }
+  function cachedCheck(id) {
+    const c = store.get('dc', {})[id];
+    return c && Date.now() - c.ts < DAY ? c : null;
+  }
+
+  /* ---------- one-time notice before the first result ---------- */
+  const ACK_KEY = 'discountAck';
+  const discountAcked = () => !!store.get(ACK_KEY);
+  function ensureDiscountAck() {
+    if (discountAcked()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const dlg = openDialog({
+        title: 'پیش از دیدن نتیجه‌ی بررسی تخفیف',
+        icon: 'tag',
+        body:
+          '<div class="notice"><p>«بررسی تخفیف» قیمت فعلی یک کالا را با قیمت‌های ۳۰ روز پیش از شروع تخفیف مقایسه می‌کند. لطفاً پیش از استفاده بدانید:</p><ul>' +
+          '<li>نتیجه فقط یک مقایسه‌ی خودکار با داده‌هایی است که اسکریپت در اختیار دارد (سابقه‌ی قیمت خود دیجی‌کالا و سوابق ثبت‌شده در مرورگر شما).</li>' +
+          '<li>این نتیجه <b>ادعا یا اتهامی</b> درباره‌ی دیجی‌کالا، فروشنده یا هیچ کالایی نیست و نمی‌گوید تخفیفی واقعی یا غیرواقعی است.</li>' +
+          '<li>داده‌ها ممکن است ناقص یا نادرست باشند (تنوع‌ها و فروشندگان مختلف، روزهای بدون داده، تغییرات سایت). همیشه خودتان در سایت بررسی کنید.</li>' +
+          '</ul><p>روش دقیق محاسبه و محدودیت‌ها در ' +
+          `<a href="${DISCLAIMER_URL}" target="_blank" rel="noopener noreferrer">سلب مسئولیت و روش کار</a> آمده است.</p></div>`,
+        actions: [{ act: 'ok', label: 'متوجه شدم', primary: true }, { act: 'cancel', label: 'انصراف' }],
+        onAct: (act) => {
+          if (act === 'ok') store.set(ACK_KEY, Date.now());
+          dlg.close();
+          resolve(act === 'ok');
+          if (act === 'ok') renderStrip();
+        },
+        onClose: () => resolve(discountAcked()),
+      });
+    });
+  }
+
+  /* ---------- result display (neutral wording and colours) ---------- */
+  const DC_CSS = `
+    .dcb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .dcc { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; line-height: 22px; font-size: 11px;
+      font-weight: 700; background: var(--dc-grey-bg, #f0f0f1); color: var(--dc-grey, #62666d); white-space: nowrap; }
+    .dcc.blue { background: var(--dc-blue-bg, #e8f0fe); color: var(--dc-blue, #1a56b4); }
+    .dcl { color: var(--n500, #81858b); font-size: 11px; }
+    :host([data-mah-theme="dark"]) .dcc { --dc-grey-bg: #323641; --dc-grey: #c2c3c7; --dc-blue-bg: #1d2f4f; --dc-blue: #9cc0f9; }
+  `;
+  const DC_TEXT = {
+    none: 'بدون تخفیف',
+    insufficient: 'داده‌ی کافی وجود ندارد',
+    below: 'کمتر از کمترین قیمت ۳۰ روز گذشته',
+    notBelow: 'کمتر از کمترین قیمت ۳۰ روز گذشته نیست',
+    refSeen: 'قیمت مرجع در ۳۰ روز گذشته قیمت فروش بوده',
+    refNotSeen: 'قیمت مرجع در ۳۰ روز گذشته قیمت فروش نبوده',
+  };
+  const DC_SHORT = { insufficient: 'داده‌ی کافی نیست', below: 'کمتر از کمینه‌ی ۳۰ روز', notBelow: 'کمتر از کمینه‌ی ۳۰ روز نیست', refNotSeen: 'قیمت مرجع دیده نشده' };
+
+  // full: the product page / chart window; short: a table cell
+  function dcHtml(res, short) {
+    const T = short ? Object.assign({}, DC_TEXT, DC_SHORT) : DC_TEXT;
+    if (!res || res.status === 'none') return short ? '<span class="dash">—</span>' : '';
+    if (res.status === 'insufficient') return `<span class="dcc">${T.insufficient}</span>`;
+    let h = `<span class="dcc${res.below ? ' blue' : ''}">${res.below ? T.below : T.notBelow}</span>`;
+    if (!short || !res.refSeen) h += `<span class="dcc">${res.refSeen ? T.refSeen : T.refNotSeen}</span>`;
+    if (!short) h += `<span class="dcl">کمترین قیمت در ۳۰ روزِ پیش از شروع تخفیف (${fmtDate(Date.parse(res.start + 'T12:00:00Z'), { month: 'long', day: 'numeric' })}): ${fmt(res.low)} تومان</span>`;
+    return h;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Price chart (SVG): Digikala's line is drawn above the script's own.
+   * ------------------------------------------------------------------ */
+  const CHART_CSS = `
+    .chart { position: relative; }
+    .chart svg { display: block; width: 100%; height: auto; overflow: visible; font-family: inherit; }
+    .chart .ax { fill: var(--n500, #81858b); font-size: 10px; }
+    .chart .grid { stroke: var(--n200, #e0e0e2); stroke-width: 1; }
+    .chart .cur { stroke: var(--n500, #81858b); stroke-width: 1; stroke-dasharray: 3 3; }
+    .chart .tip { position: absolute; top: 0; pointer-events: none; background: var(--bg, #fff); border: 1px solid var(--n200, #e0e0e2);
+      border-radius: 8px; padding: 6px 10px; font-size: 11px; line-height: 1.8; box-shadow: 0 4px 16px rgba(0,0,0,.12); white-space: nowrap; }
+    .chart .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 6px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; color: var(--n600, #62666d); font-size: 11px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 18px; height: 0; border-top: 2px solid; }
+    .legend i.dash { border-top-style: dashed; }
+    .ranges { display: flex; gap: 6px; margin-bottom: 8px; }
+    .ranges button { height: 28px; padding: 0 10px; border: 1px solid var(--n200, #e0e0e2); border-radius: 999px; background: none;
+      color: var(--n600, #62666d); font-weight: 700; cursor: pointer; }
+    .ranges button[aria-pressed="true"] { border-color: var(--p, #ef394e); color: var(--p, #ef394e); }
+  `;
+  const LINE = {
+    dk: { color: '#0fabc6', label: 'قیمت فروش (نمودار دیجی‌کالا)' },
+    dkRrp: { color: '#a1a3a8', dash: true, label: 'قیمت مرجع (نمودار دیجی‌کالا)' },
+    own: { color: '#f57c00', label: 'قیمت فروش (سوابق شما)' },
+  };
+
+  // Series for the chart: [{ key, pts: [[ts, price] | null(gap)] }], bottom layer first.
+  function chartSeries(dk, runs) {
+    const out = [];
+    if (runs && runs.length) {
+      const pts = [];
+      let prevTo = null;
+      for (const [from, to, price, , avail] of runs) {
+        if (prevTo != null && from - prevTo > RUN_GAP) pts.push(null);
+        if (avail) pts.push([from, price], [to, price]);
+        else pts.push(null);
+        prevTo = to;
+      }
+      out.push({ key: 'own', pts });
+    }
+    if (dk) {
+      const keys = [...dk.days.keys()].sort();
+      const sel = [];
+      const rrp = [];
+      let prev = null;
+      for (const k of keys) {
+        const v = dk.days.get(k);
+        const ts = Date.parse(k + 'T12:00:00Z');
+        if (prev && Date.parse(k) - Date.parse(prev) > DAY * 1.5) { sel.push(null); rrp.push(null); }
+        if (v.avail) { sel.push([ts, v.price]); rrp.push(v.rrp > v.price ? [ts, v.rrp] : null); }
+        else { sel.push(null); rrp.push(null); }
+        prev = k;
+      }
+      out.push({ key: 'dkRrp', pts: rrp }, { key: 'dk', pts: sel });
+    }
+    return out;
+  }
+
+  // Returns { html, attach(el) }: attach wires the hover tooltip once the html is in the page.
+  function drawChart(series, fromTs, toTs) {
+    const W = 640, H = 240, pl = 8, pr = 64, pt = 10, pb = 26;
+    const vis = series.map((s) => ({ key: s.key, pts: s.pts.map((p) => (p && p[0] >= fromTs && p[0] <= toTs ? p : null)) }));
+    const all = vis.flatMap((s) => s.pts.filter(Boolean));
+    if (!all.length) return { html: '<div class="msg"><span>در این بازه داده‌ای وجود ندارد.</span></div>', attach() {} };
+    let lo = Math.min(...all.map((p) => p[1]));
+    let hi = Math.max(...all.map((p) => p[1]));
+    if (hi === lo) { hi *= 1.05; lo *= 0.95; }
+    const padV = (hi - lo) * 0.08;
+    lo = Math.max(0, lo - padV);
+    hi += padV;
+    const x0 = Math.min(fromTs, ...all.map((p) => p[0]));
+    const x1 = Math.max(toTs, x0 + DAY);
+    // RTL page, but time runs left to right like Digikala's own chart
+    const X = (t) => pl + ((t - x0) / (x1 - x0)) * (W - pl - pr);
+    const Y = (v) => pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb);
+    let g = '';
+    for (let i = 0; i <= 3; i++) {
+      const v = lo + ((hi - lo) * i) / 3;
+      g += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}"/><text class="ax" x="${W - pr + 6}" y="${Y(v) + 3}">${fmt(v)}</text>`;
+    }
+    for (let i = 0; i <= 4; i++) {
+      const t = x0 + ((x1 - x0) * i) / 4;
+      const anchor = i === 0 ? 'start' : i === 4 ? 'end' : 'middle';
+      g += `<text class="ax" x="${X(t)}" y="${H - 6}" text-anchor="${anchor}">${fmtDate(t, { month: 'short', day: 'numeric' })}</text>`;
+    }
+    for (const s of vis) {
+      const st = LINE[s.key];
+      let d = '';
+      let pen = false;
+      for (const p of s.pts) {
+        if (!p) { pen = false; continue; }
+        d += (pen ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1);
+        pen = true;
+      }
+      if (d) g += `<path d="${d}" fill="none" stroke="${st.color}" stroke-width="${s.key === 'dk' ? 2.2 : 2}"${st.dash ? ' stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`;
+    }
+    const html = `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="نمودار قیمت">${g}` +
+      `<line class="cur" y1="${pt}" y2="${H - pb}" x1="-10" x2="-10"/><rect x="${pl}" y="${pt}" width="${W - pl - pr}" height="${H - pt - pb}" fill="transparent"/></svg>` +
+      '<div class="tip" hidden></div></div>';
+    const attach = (el) => {
+      const svgEl = el.querySelector('svg');
+      const tip = el.querySelector('.tip');
+      const cur = el.querySelector('.cur');
+      if (!svgEl) return;
+      svgEl.addEventListener('mousemove', (e) => {
+        const box = svgEl.getBoundingClientRect();
+        const t = x0 + (((e.clientX - box.left) / box.width) * W - pl) / (W - pl - pr) * (x1 - x0);
+        const rows = [];
+        for (const s of vis.slice().reverse()) {
+          let best = null;
+          for (const p of s.pts) if (p && (!best || Math.abs(p[0] - t) < Math.abs(best[0] - t))) best = p;
+          if (best && Math.abs(best[0] - t) < 2 * DAY) rows.push(`<div><i style="background:${LINE[s.key].color}"></i>${fmt(best[1])} تومان</div>`);
+        }
+        if (!rows.length) { tip.hidden = true; cur.setAttribute('x1', -10); cur.setAttribute('x2', -10); return; }
+        const xs = X(t).toFixed(1);
+        cur.setAttribute('x1', xs);
+        cur.setAttribute('x2', xs);
+        tip.innerHTML = `<b>${fmtDate(t)}</b>` + rows.join('');
+        tip.hidden = false;
+        const px = ((e.clientX - box.left) / box.width) * el.clientWidth;
+        tip.style.left = Math.min(Math.max(0, px + 12), el.clientWidth - tip.offsetWidth) + 'px';
+      });
+      svgEl.addEventListener('mouseleave', () => { tip.hidden = true; cur.setAttribute('x1', -10); cur.setAttribute('x2', -10); });
+    };
+    return { html, attach };
+  }
+
+  const legendHtml = (series) =>
+    '<div class="legend">' + series.slice().reverse().filter((s) => s.pts.some(Boolean))
+      .map((s) => `<span><i class="${LINE[s.key].dash ? 'dash' : ''}" style="border-color:${LINE[s.key].color}"></i>${LINE[s.key].label}</span>`).join('') + '</div>';
+
+  /* ------------------------------------------------------------------ *
+   * Dialogs (notice, chart): same look as the settings panel
+   * ------------------------------------------------------------------ */
+  function ensurePanelCss(root) {
+    if (root.querySelector('style[data-pn]')) return;
+    const st = document.createElement('style');
+    st.setAttribute('data-pn', '');
+    st.textContent = PANEL_CSS + DC_CSS + CHART_CSS;
+    root.appendChild(st);
+  }
+  // opts: { title, icon, body, actions: [{ act, label, primary }], onAct(act, wrap), onClose() } -> { wrap, body, close }
+  function openDialog(opts) {
+    const root = getRoot();
+    ensurePanelCss(root);
+    const wrap = document.createElement('div');
+    wrap.className = 'pnw';
+    wrap.setAttribute('dir', 'rtl');
+    wrap.innerHTML =
+      `<div class="pn" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}">` +
+      `<div class="top"><div class="ttl"><span class="badge">${svg(opts.icon || 'gear', 20)}</span><span>${esc(opts.title)}</span></div><span class="sp"></span>` +
+      `<button class="btn ghost" type="button" data-act="close" title="بستن">${svg('close', 22)}</button></div>` +
+      `<div class="pn-body">${opts.body || ''}</div>` +
+      (opts.actions ? '<div class="pn-foot">' + opts.actions.map((a) =>
+        `<button class="btn sm${a.primary ? ' pri' : ''}" type="button" data-act="${a.act}">${a.label}</button>`).join('') + '</div>' : '') +
+      '</div>';
+    root.appendChild(wrap);
+    let open = true;
+    const close = () => {
+      if (!open) return;
+      open = false;
+      wrap.remove();
+      window.removeEventListener('keydown', onKey, true);
+      if (opts.onClose) opts.onClose();
+    };
+    // on window, so Escape closes only this dialog and not the table underneath
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+    window.addEventListener('keydown', onKey, true);
+    wrap.addEventListener('click', (e) => {
+      if (e.target === wrap) return close();
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      if (b.dataset.act === 'close') close();
+      else if (opts.onAct) opts.onAct(b.dataset.act, wrap, b);
+    });
+    return { wrap, body: wrap.querySelector('.pn-body'), close };
+  }
+
+  // The chart window: Digikala's history and the script's records, with the discount check.
+  async function openChartDialog(id, cur, title) {
+    const dlg = openDialog({ title: 'نمودار قیمت (MAH)', icon: 'tag', body: `<div class="msg">${'<span class="cspin"></span>'}<span>در حال دریافت سابقه‌ی قیمت…</span></div>` });
+    let dkAll = [];
+    let dkErr = null;
+    try { dkAll = await fetchDkChart(id); } catch (e) { dkErr = e; }
+    const dk = pickDkSeries(dkAll, cur);
+    const runs = getHist(id).r;
+    const series = chartSeries(dk, runs);
+    const res = discountCheck(cur, mergedDays(dk, runs), dayKey(Date.now()));
+    let range = 90;
+    const render = () => {
+      const now = Date.now();
+      const c = drawChart(series, range ? now - range * DAY : 0, now);
+      let h = title ? `<p class="ptitle">${esc(title)}</p>` : '';
+      if (cur && cur.avail && cur.rrp > cur.price) {
+        h += `<div class="dcbox"><b>بررسی تخفیف</b>${discountAcked() ? `<div class="dcb">${dcHtml(res)}</div>`
+          : '<button class="btn sm" type="button" data-act="ack">نمایش نتیجه</button>'}</div>`;
+      }
+      h += '<div class="ranges">' + [[30, '۳۰ روز'], [90, '۳ ماه'], [365, '۱ سال']]
+        .map(([d, t]) => `<button type="button" data-act="range" data-d="${d}" aria-pressed="${range === d}">${t}</button>`).join('') + '</div>';
+      h += c.html + legendHtml(series);
+      if (dkErr) h += '<p class="note">نمودار دیجی‌کالا دریافت نشد؛ فقط سوابق خود شما نشان داده می‌شود.</p>';
+      else if (!dk) h += '<p class="note">دیجی‌کالا برای این کالا نمودار قیمتی ندارد؛ فقط سوابق خود شما نشان داده می‌شود.</p>';
+      h += `<p class="note">قیمت‌ها به تومان. روش محاسبه: <a href="${DISCLAIMER_URL}" target="_blank" rel="noopener noreferrer">سلب مسئولیت و روش کار</a></p>`;
+      dlg.body.innerHTML = h;
+      c.attach(dlg.body.querySelector('.chart') || dlg.body);
+    };
+    dlg.wrap.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      if (b.dataset.act === 'range') { range = +b.dataset.d; render(); }
+      else if (b.dataset.act === 'ack') ensureDiscountAck().then((ok) => { if (ok) render(); });
+    });
+    render();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Product page: records the price and shows a strip in the buy box with the
+   * discount check, the chart button and (manual mode) a "record price" button.
+   * A section is also added to Digikala's own price-chart window.
+   * ------------------------------------------------------------------ */
+  const STRIP_ID = 'mah-dk-strip';
+  const MODAL_SEC_ID = 'mah-dk-chart-sec';
+  const STRIP_CSS = `
+    :host { all: initial; display: block; margin: 0 0 12px; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    .st { --p: var(--color-primary-700, #ef394e); --bg: #fff;
+      --n700: var(--color-neutral-700, #3f4064); --n600: var(--color-neutral-600, #62666d); --n500: var(--color-neutral-500, #81858b);
+      --n200: var(--color-neutral-200, #e0e0e2); --n100: var(--color-neutral-100, #f0f0f1);
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--n200); border-radius: 8px;
+      font-family: Digikala, Tahoma, "Segoe UI", sans-serif; font-size: 12px; line-height: 1.8; color: var(--n700); direction: rtl; }
+    :host([data-mah-theme="dark"]) .st { --bg: var(--color-neutral-000, #222732); }
+    .tag { font-weight: 700; color: var(--n500); font-size: 11px; }
+    .sp { flex: 1; }
+    button { font-family: inherit; font-size: 11px; height: 28px; padding: 0 10px; border: 1px solid var(--n200); border-radius: 6px;
+      background: var(--bg); color: var(--n700); font-weight: 700; cursor: pointer; white-space: nowrap; }
+    button:hover { background: var(--n100); }
+    .ok { color: #2e7d32; font-size: 11px; }
+  ` + DC_CSS;
+
+  let pageProd = null; // { id, cur, title, res, state: 'loading' | 'ready' | 'error', recorded }
+  const productCache = new Map();
+  function fetchProduct(id) {
+    const hit = productCache.get(id);
+    if (hit && Date.now() - hit.at < 5 * 60e3) return hit.p;
+    const p = fetch('https://api.digikala.com/v2/product/' + id + '/', { headers: { Accept: 'application/json' } })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then((j) => { const pr = j && j.data && j.data.product; if (!pr || pr.is_inactive) throw new Error('not found'); return pr; });
+    p.catch(() => productCache.delete(id));
+    productCache.set(id, { at: Date.now(), p });
+    return p;
+  }
+  function obsFromProduct(p) {
+    const v = p && p.default_variant;
+    const pr = v && !Array.isArray(v) ? v.price : null;
+    const avail = !!(p && p.status === 'marketable' && pr && pr.selling_price > 0);
+    return {
+      price: avail ? pr.selling_price / 10 : 0,
+      rrp: avail && pr.rrp_price > pr.selling_price ? pr.rrp_price / 10 : 0,
+      avail: avail ? 1 : 0,
+    };
+  }
+
+  async function loadProductPage(pp) {
+    try {
+      const p = await fetchProduct(pp.id);
+      pp.cur = obsFromProduct(p);
+      pp.title = String(p.title_fa || p.title_en || '').trim();
+      pp.recorded = recordPrice(pp.id, pp.cur, pp.title);
+      pp.res = (await checkProduct(pp.id, pp.cur)).res;
+      pp.state = 'ready';
+    } catch (e) {
+      console.warn('[MAH Digikala Extensions] product data:', e);
+      pp.state = 'error';
+    }
+    if (pageProd === pp) renderStrip();
+  }
+
+  function renderStrip() {
+    const host = document.getElementById(STRIP_ID);
+    const pp = pageProd;
+    if (!host || !pp) return;
+    const manual = settings().history.freq === 'manual';
+    let mid = '';
+    if (pp.state === 'loading') mid = '<span class="dcl">در حال بررسی سابقه‌ی قیمت…</span>';
+    else if (pp.state === 'error') mid = '<span class="dcl">اطلاعات قیمت این کالا دریافت نشد.</span>';
+    else if (pp.res && pp.res.status !== 'none') {
+      mid = discountAcked() ? `<div class="dcb">${dcHtml(pp.res)}</div>` : '<button type="button" data-act="ack">نمایش نتیجه‌ی بررسی تخفیف</button>';
+    }
+    host.shadowRoot.querySelector('.body').innerHTML =
+      `<span class="tag">MAH · بررسی تخفیف</span>${mid}<span class="sp"></span>` +
+      (manual && pp.state === 'ready' ? (pp.recorded ? '<span class="ok">قیمت امروز ثبت شد</span>' : '<button type="button" data-act="record">ثبت قیمت</button>') : '') +
+      '<button type="button" data-act="chart">نمودار قیمت</button>';
+  }
+
+  function ensureStrip() {
+    // the buy box, else right after the product title
+    const anchor = document.querySelector('[class*="InfoSection__buybox"]') || null;
+    const title = anchor ? null : document.querySelector('main h1');
+    if (!anchor && !title) return;
+    let host = document.getElementById(STRIP_ID);
+    if (host && (anchor ? host.parentElement === anchor : host.previousElementSibling === title)) return;
+    if (!host) {
+      host = document.createElement('div');
+      host.id = STRIP_ID;
+      const root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${STRIP_CSS}</style><div class="st body"></div>`;
+      root.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-act]');
+        const pp = pageProd;
+        if (!b || !pp) return;
+        if (b.dataset.act === 'chart') openChartDialog(pp.id, pp.cur, pp.title);
+        else if (b.dataset.act === 'ack') ensureDiscountAck();
+        else if (b.dataset.act === 'record' && pp.cur) {
+          pp.recorded = recordPrice(pp.id, pp.cur, pp.title, true) || true;
+          checkProduct(pp.id, pp.cur).then((r) => { pp.res = r.res; renderStrip(); });
+          renderStrip();
+        }
+      });
+    }
+    host.setAttribute(THEME_ATTR, currentMode());
+    if (anchor) anchor.prepend(host);
+    else title.insertAdjacentElement('afterend', host);
+    renderStrip();
+  }
+
+  // A section at the bottom of Digikala's own "نمودار قیمت" window: the discount check and the script's records.
+  function ensureModalSection() {
+    const pp = pageProd;
+    const legend = document.querySelector('[class*="MainProductPriceChartModalColorInfo"]');
+    if (!legend || !pp || pp.state !== 'ready') return;
+    let box = legend.parentElement;
+    while (box && box !== document.body && !box.querySelector('canvas')) box = box.parentElement;
+    if (!box || box === document.body || box.querySelector('#' + MODAL_SEC_ID)) return;
+    const host = document.createElement('div');
+    host.id = MODAL_SEC_ID;
+    host.setAttribute(THEME_ATTR, currentMode());
+    const root = host.attachShadow({ mode: 'open' });
+    const runs = getHist(pp.id).r;
+    const series = chartSeries(null, runs);
+    const now = Date.now();
+    const c = series.length ? drawChart(series, now - 90 * DAY, now) : null;
+    const showRes = pp.res && pp.res.status !== 'none';
+    root.innerHTML = `<style>${STRIP_CSS}${CHART_CSS} .st{display:block;margin-top:16px} h4{margin:0 0 6px;font-size:13px} .note{color:var(--n500);font-size:11px;margin:6px 0 0}</style>` +
+      '<div class="st"><h4>افزونه‌ی MAH</h4>' +
+      (showRes ? `<div class="dcb">${discountAcked() ? dcHtml(pp.res) : '<button type="button" data-act="ack">نمایش نتیجه‌ی بررسی تخفیف</button>'}</div>` : '') +
+      (c ? '<p class="note">سوابق قیمتی که این مرورگر ثبت کرده (۳ ماه اخیر):</p>' + c.html + legendHtml(series)
+        : '<p class="note">هنوز سابقه‌ی قیمتی برای این کالا در این مرورگر ثبت نشده است.</p>') +
+      `<p class="note"><a href="${DISCLAIMER_URL}" target="_blank" rel="noopener noreferrer">روش محاسبه و سلب مسئولیت</a></p></div>`;
+    root.addEventListener('click', (e) => {
+      if (e.target.closest('[data-act="ack"]')) ensureDiscountAck().then((ok) => { if (ok) { host.remove(); ensureModalSection(); } });
+    });
+    box.appendChild(host);
+    if (c) c.attach(root.querySelector('.chart'));
+  }
+
+  // Called on every page change / re-render.
+  function ensureProductPage() {
+    const id = productId();
+    if (!historyOn() || !id || location.hostname !== 'www.digikala.com') {
+      pageProd = null;
+      const s = document.getElementById(STRIP_ID);
+      if (s) s.remove();
+      return;
+    }
+    if (!pageProd || pageProd.id !== id) {
+      pageProd = { id, state: 'loading' };
+      loadProductPage(pageProd);
+    }
+    ensureStrip();
+    ensureModalSection();
+  }
+
+  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart });
+
+  /* ------------------------------------------------------------------ *
    * Panel: settings and about. Opened from the entry in the profile menu
    * or from the userscript manager's menu (works when logged out too).
    * ------------------------------------------------------------------ */
@@ -2168,6 +2893,15 @@
     { key: 'table', label: 'جدول کالاها', hint: 'دکمه‌ی «جدول کالاها» در شگفت‌انگیزها و صفحه‌های دسته‌بندی' },
     { key: 'theme', label: 'حالت نمایش', hint: 'دکمه‌ی روشن / تاریک / سیستم کنار زنگ اعلان؛ اگر خاموش باشد سایت روشن نمایش داده می‌شود' },
     { key: 'compare', label: 'مقایسه‌ی قیمت', hint: 'دکمه‌ی «مقایسه قیمت» در صفحه‌ی کالا' },
+    { key: 'history', label: 'سابقه‌ی قیمت و بررسی تخفیف', hint: 'ثبت قیمت‌ها در همین مرورگر، نمودار قیمت و بررسی تخفیف در صفحه‌ی کالا و جدول' },
+  ];
+  const FREQ_OPTIONS = [
+    ['manual', 'دستی: فقط با دکمه‌ی «ثبت قیمت» در صفحه‌ی کالا'],
+    ['visit', 'هنگام بازدید: هر بار که صفحه‌ی کالا یا جدول کالاها را باز می‌کنید'],
+    ['6h', 'هر ۶ ساعت'],
+    ['12h', 'هر ۱۲ ساعت'],
+    ['daily', 'روزی یک بار'],
+    ['weekly', 'هفته‌ای یک بار'],
   ];
   const SHOP_LABELS = { torob: 'ترب', emalls: 'ایمالز', basalam: 'باسلام', foreign: 'فروشگاه‌های خارجی (آمازون و ای‌بی)' };
 
@@ -2220,6 +2954,14 @@
     h += '</div><label class="field-row"><span>نرخ هر دلار (تومان)</span>' +
       `<input type="text" inputmode="numeric" dir="ltr" data-usd value="${usd ? usd : ''}" placeholder="خودکار">` +
       '<small>برای تبدیل قیمت فروشگاه‌های خارجی. خالی بگذارید تا نرخ خودکار (open.er-api.com) استفاده شود.</small></label></section>';
+    h += '<section><h3>سابقه‌ی قیمت</h3>' +
+      '<label class="field-row"><span>ثبت قیمت‌ها</span><select data-freq' + (feature('history') ? '' : ' disabled') + '>' +
+      FREQ_OPTIONS.map(([v, t]) => `<option value="${v}"${st.history.freq === v ? ' selected' : ''}>${t}</option>`).join('') + '</select>' +
+      '<small>در گزینه‌های زمان‌دار، قیمت کالاهای فهرست پیگیری با همین فاصله خودکار بررسی می‌شود؛ ' +
+      'صفحه‌های کالا و جدول کالاها هم هنگام باز شدن ثبت می‌شوند. سوابق تا یک سال نگه داشته می‌شوند.</small></label>' +
+      `<p class="note">سابقه‌ی ${L(historyCount())} کالا در این مرورگر ثبت شده است. ` +
+      `<a href="${DISCLAIMER_URL}" target="_blank" rel="noopener noreferrer">روش کار بررسی تخفیف</a></p>` +
+      '<div class="acts"><button class="btn sm" type="button" data-act="delhist">حذف همه‌ی سوابق قیمت</button></div></section>';
     h += '<section><h3>نمایش اعداد</h3><div class="shops">' +
       `<label class="row sm"><input type="radio" name="digits" value="fa"${st.digits !== 'en' ? ' checked' : ''}><span>فارسی (۱۲۳)</span></label>` +
       `<label class="row sm"><input type="radio" name="digits" value="en"${st.digits === 'en' ? ' checked' : ''}><span>لاتین (123)</span></label>` +
@@ -2292,6 +3034,18 @@
     .pn .links li { padding: 3px 0; }
     .pn .links a { color: var(--p); text-decoration: none; font-weight: 700; }
     .pn .links a:hover { text-decoration: underline; }
+    .pn .btn.pri { background: var(--p); border-color: var(--p); color: #fff; }
+    .pn-foot { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--n200); flex: none; }
+    .pn .msg { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 160px; color: var(--n600); }
+    .pn .cspin { width: 18px; height: 18px; border: 2px solid var(--n200); border-top-color: var(--p); border-radius: 50%;
+      animation: sp .8s linear infinite; flex: none; display: inline-block; }
+    .pn .ptitle { margin: 12px 0 8px; font-weight: 700; font-size: 13px; }
+    .pn .dcbox { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin: 8px 0 12px;
+      border: 1px solid var(--n200); border-radius: 10px; }
+    .pn .notice ul { margin: 8px 0; padding: 0 18px 0 0; }
+    .pn .notice li { padding: 3px 0; }
+    .pn .notice a, .pn .note a { color: var(--p); }
+    .pn select { height: 32px; padding: 0 10px; border: 1px solid var(--n200); border-radius: 8px; background: var(--bg); color: inherit; }
   `;
 
   let panelUi = null; // { wrap, close }
@@ -2299,12 +3053,7 @@
   function showPanel(tabKey) {
     const root = getRoot();
     if (panelUi) { panelUi.select(tabKey); return; }
-    if (!root.querySelector('style[data-pn]')) {
-      const st = document.createElement('style');
-      st.setAttribute('data-pn', '');
-      st.textContent = PANEL_CSS;
-      root.appendChild(st);
-    }
+    ensurePanelCss(root);
     const wrap = document.createElement('div');
     wrap.className = 'pnw';
     wrap.setAttribute('dir', 'rtl');
@@ -2349,6 +3098,12 @@
       else if (act === 'reload') location.reload();
       else if (act === 'export') exportData();
       else if (act === 'import') body.querySelector('[data-file]').click();
+      else if (act === 'delhist') {
+        if (confirm('همه‌ی سوابق قیمتی که این مرورگر ثبت کرده (و نرخ‌های ارز روزانه) حذف می‌شوند. این کار برگشت‌پذیر نیست. ادامه می‌دهید؟')) {
+          deleteHistory();
+          render();
+        }
+      }
     });
     wrap.addEventListener('change', (e) => {
       const t = e.target;
@@ -2362,6 +3117,8 @@
         updateSettings((s) => { s.digits = t.value; });
         render();
         body.querySelector('[data-reload]').hidden = (t.value === 'en') === (LOCALE === 'en-US');
+      } else if (t.matches('[data-freq]')) {
+        updateSettings((s) => { s.history.freq = t.value; });
       } else if (t.matches('[data-usd]')) {
         setManualRate(t.value);
         t.value = manualRate() || '';
@@ -2391,6 +3148,7 @@
     try {
       const src = await openSource(progress);
       progress.close();
+      recordRows(src.rows);
       if (!src.rows.length) {
         alert('افزونه MAH دیجی‌کالا: کالایی در این صفحه پیدا نشد.');
       } else {
@@ -2501,6 +3259,7 @@
   // Each button is shown only while its feature is turned on in the settings.
   function ensureButtons() {
     ensureMenuItem();
+    ensureProductPage();
     const wantTable = feature('table') && !!pageType();
     const wantCmp = feature('compare') && !!productId() && cmpTabs().length > 0;
     let tableBtn = document.getElementById(BTN_ID);
@@ -2558,6 +3317,7 @@
     }).observe(document.documentElement, { childList: true, subtree: true });
     ensureButtons();
     window.addEventListener('load', () => setTimeout(ensureButtons, 500));
+    setTimeout(pruneHistory, 15000);
   }
 
   // Runs at document-start so the theme is applied before the page paints.

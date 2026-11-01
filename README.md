@@ -7,6 +7,7 @@ A userscript that adds a few handy tools to [Digikala](https://www.digikala.com)
 - **Table view for product listings.** On the Incredible Offers page and on category pages, a new header button opens every item in one full-page table that you can sort, group and filter, and export to CSV.
 - **Dark mode.** A light / dark / system theme switch next to the notification bell, on every Digikala page (including the login and account pages).
 - **Price comparison.** On product pages, a button that looks the product up on Torob, Emalls and BaSalam, and on Amazon and eBay with prices converted to Toman.
+- **Price history and discount check.** The script keeps its own record of prices in your browser, shows them on a chart alongside Digikala's own price chart, and compares a discounted price with the prices of the 30 days before the discount.
 
 The script runs in your browser only. It has no server of its own and collects nothing. Like Digikala itself, its interface is in Persian; button names below are given in English for reference.
 
@@ -57,6 +58,20 @@ Foreign prices are converted to Toman using a live exchange rate. You can set yo
 
 > **Double-check every result.** Matches are found by searching for the product's name, so a result can be a different model, colour or capacity, especially in the Foreign tab. Converted prices are approximate and leave out shipping, customs and taxes.
 
+### Price history and discount check
+
+On a product page, a small **MAH** bar appears in the buy box with:
+
+- the **discount check** result, when Digikala shows a discount. It answers two questions: is the price lower than the lowest price of the 30 days before the discount started, and was the "before discount" price actually charged during those days? The first time, a short notice explains what the check does and doesn't mean.
+- a **price chart** button: Digikala's own daily history together with the script's records
+- a **record price** button, when recording is set to manual
+
+Digikala's own **نمودار قیمت** window also gets a section with the same check and your records.
+
+In the table, a **discount check** column shows results for products already checked, and **Check discounts** checks up to 100 discounted products currently shown.
+
+How often prices are recorded is set in the settings: manually, on each visit, or on a schedule (every 6 or 12 hours, daily, weekly). Records are kept for one year. See the [disclaimer and methodology](DISCLAIMER.md) for exactly how the check works.
+
 ### Settings
 
 Open the settings panel from either place:
@@ -66,7 +81,8 @@ Open the settings panel from either place:
 
 In the panel you can:
 
-- turn each feature (table, theme, price comparison) on or off
+- turn each feature (table, theme, price comparison, price history) on or off
+- choose how often prices are recorded, or delete all price records
 - choose which shops the price comparison searches
 - set your own dollar rate
 - switch between Persian and Latin digits
