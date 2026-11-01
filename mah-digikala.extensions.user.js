@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.5.9
+// @version      1.6.0
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -17,6 +17,12 @@
 // @match        https://accounts.digikala.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @grant        GM_addValueChangeListener
+// @grant        GM_registerMenuCommand
 // @connect      api.torob.com
 // @connect      torob.com
 // @connect      emalls.ir
@@ -35,14 +41,76 @@
   'use strict';
 
   /* ------------------------------------------------------------------ *
+   * Storage and settings
+   * Everything is kept in the userscript manager's storage: it is shared by
+   * www / auth / accounts and survives clearing the site's own data.
+   * ------------------------------------------------------------------ */
+  const store = {
+    get(key, def) {
+      try { const v = GM_getValue(key); return v === undefined ? def : v; } catch (e) { return def; }
+    },
+    set(key, v) { try { GM_setValue(key, v); } catch (e) { /* storage unavailable */ } },
+    del(key) { try { GM_deleteValue(key); } catch (e) { /* storage unavailable */ } },
+    keys() { try { return GM_listValues(); } catch (e) { return []; } },
+    // fn(newValue) runs when another tab changes the value
+    watch(key, fn) {
+      try { GM_addValueChangeListener(key, (_key, _old, newV, remote) => { if (remote) fn(newV); }); } catch (e) { /* not supported */ }
+    },
+  };
+
+  // Up to 1.5 the theme and the dollar rate lived in the site's localStorage (one copy per subdomain): move them over once.
+  (function migrateLocalStorage() {
+    const moves = [['mah-dk-theme', 'theme', String], ['mah-dk-usd-toman', 'usdManual', parseFloat]];
+    for (const [oldKey, key, conv] of moves) {
+      let v = null;
+      try { v = localStorage.getItem(oldKey); } catch (e) { return; }
+      if (v == null) continue;
+      if (store.get(key) === undefined) store.set(key, conv(v));
+      try { localStorage.removeItem(oldKey); } catch (e) { /* ignore */ }
+    }
+  })();
+
+  const SETTINGS_KEY = 'settings';
+  const DEFAULT_SETTINGS = {
+    digits: 'fa', // 'fa' = Persian digits (like the site), 'en' = Latin digits
+    features: { table: true, theme: true, compare: true },
+    shops: { torob: true, emalls: true, basalam: true, foreign: true }, // price-comparison tabs
+  };
+  // Saved values over the defaults, one level deep, so settings added in later versions get their default.
+  function mergeSettings(saved) {
+    const out = {};
+    for (const k of Object.keys(DEFAULT_SETTINGS)) {
+      const d = DEFAULT_SETTINGS[k];
+      const v = saved && saved[k];
+      if (d && typeof d === 'object') out[k] = Object.assign({}, d, v && typeof v === 'object' ? v : {});
+      else out[k] = v !== undefined ? v : d;
+    }
+    return out;
+  }
+  let settingsCache = null;
+  const settings = () => settingsCache || (settingsCache = mergeSettings(store.get(SETTINGS_KEY)));
+  const feature = (name) => settings().features[name] !== false;
+  const settingsListeners = [];
+  const settingsChanged = () => settingsListeners.forEach((fn) => fn());
+  // fn receives a copy of the settings to change in place
+  function updateSettings(fn) {
+    const next = JSON.parse(JSON.stringify(settings()));
+    fn(next);
+    settingsCache = mergeSettings(next);
+    store.set(SETTINGS_KEY, settingsCache);
+    settingsChanged();
+  }
+  store.watch(SETTINGS_KEY, () => { settingsCache = null; settingsChanged(); });
+
+  /* ------------------------------------------------------------------ *
    * Config
    * ------------------------------------------------------------------ */
   // The pages on which the button is shown are listed in PAGE_TYPES (further below).
   // Items fetched when the table is first opened, and added by each "load more" press.
   const INITIAL_CAP = 1000;
   const LOAD_MORE_STEP = 1000;
-  // 'fa-IR' = Persian digits (like the site), 'en-US' = Latin digits.
-  const LOCALE = 'fa-IR';
+  // Read once: a change in the settings applies from the next page load.
+  const LOCALE = settings().digits === 'en' ? 'en-US' : 'fa-IR';
   const PCT = LOCALE.startsWith('fa') ? '٪' : '%';
 
   const BTN_ID = 'mah-dk-btn';
@@ -89,6 +157,7 @@
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
     tag: '<path d="M3 12.5V4h8.5L21 13.5 13.5 21z"/><circle cx="8" cy="8.5" r="1.3"/>',
     monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   };
   const svg = (name, size = 20) =>
     `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" ` +
@@ -1022,7 +1091,7 @@
    * and get their own override. The site's newer design-system components follow
    * its own data-dds-mode switch, which is set to "dark" as well.
    * ------------------------------------------------------------------ */
-  const THEME_KEY = 'mah-dk-theme'; // saved choice: 'light' | 'dark' | 'system'
+  const THEME_KEY = 'theme'; // saved choice: 'light' | 'dark' | 'system'
   const THEME_ATTR = 'data-mah-theme'; // set on <html> (and on the table's shadow host) to the resolved mode
   const THEME_STYLE_ID = 'mah-dk-theme-style';
   const THEME_BTN_ID = 'mah-dk-theme-btn';
@@ -1176,12 +1245,13 @@
 
   function readTheme() {
     if (themePref) return themePref;
-    let v = null;
-    try { v = localStorage.getItem(THEME_KEY); } catch (e) { /* storage blocked */ }
+    const v = store.get(THEME_KEY);
     return THEME_ORDER.indexOf(v) !== -1 ? v : 'system';
   }
   const systemPrefersDark = () => !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  // With the theme feature turned off the site keeps its own (light) look.
   const currentMode = () => {
+    if (!feature('theme')) return 'light';
     const pref = readTheme();
     return pref === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : pref;
   };
@@ -1317,7 +1387,7 @@
   function cycleTheme() {
     const next = THEME_ORDER[(THEME_ORDER.indexOf(readTheme()) + 1) % THEME_ORDER.length];
     themePref = next;
-    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* storage blocked: lasts until the page is reloaded */ }
+    store.set(THEME_KEY, next);
     applyTheme();
   }
 
@@ -1341,10 +1411,8 @@
       if (mq.addEventListener) mq.addEventListener('change', onChange);
       else if (mq.addListener) mq.addListener(onChange);
     }
-    // keep other open Digikala tabs in sync
-    window.addEventListener('storage', (e) => {
-      if (e.key === THEME_KEY || e.key === null) { themePref = null; applyTheme(); }
-    });
+    // keep other open Digikala tabs (on any subdomain) in sync
+    store.watch(THEME_KEY, () => { themePref = null; applyTheme(); });
   }
 
   /* ------------------------------------------------------------------ *
@@ -1352,7 +1420,7 @@
    * Cross-origin requests go through GM_xmlhttpRequest (see @connect above).
    * ------------------------------------------------------------------ */
   const CMP_BTN_ID = 'mah-dk-cmp-btn';
-  const USD_KEY = 'mah-dk-usd-toman';
+  const USD_KEY = 'usdManual'; // the user's own dollar rate in Tomans (absent = use the automatic rate)
   const productId = () => (location.pathname.match(/^\/product\/dkp-(\d+)/) || [])[1] || null;
 
   const CMP_TABS = [
@@ -1361,6 +1429,8 @@
     { key: 'basalam', label: 'BaSalam', logo: 'basalam' },
     { key: 'foreign', label: 'خارجی' },
   ];
+  // the tabs the user has not turned off in the settings
+  const cmpTabs = () => CMP_TABS.filter((t) => settings().shops[t.key] !== false);
 
   // Site icons (their own favicons, shrunk to ~18-24px) as data URLs, so nothing is loaded from those sites to draw the UI.
   const LOGOS = {
@@ -1507,7 +1577,13 @@
     return ratesP;
   }
   function manualRate() {
-    try { const v = parseFloat(localStorage.getItem(USD_KEY)); return v > 0 ? v : null; } catch (e) { return null; }
+    const v = parseFloat(store.get(USD_KEY));
+    return v > 0 ? v : null;
+  }
+  function setManualRate(value) {
+    const v = parseFloat(latin(value));
+    if (v > 0) store.set(USD_KEY, v);
+    else store.del(USD_KEY);
   }
   const usdToman = (s) => manualRate() || (s.rates && s.rates.IRR ? s.rates.IRR / 10 : null);
   function toToman(s, amount, cur) {
@@ -1784,9 +1860,15 @@
     cmpRender(s, key);
   }
 
+  // Starts every enabled tab that has not run yet in this session (a shop can be turned on later).
   function startAll(s) {
     s.started = true;
-    for (const t of CMP_TABS) runTab(s, t.key);
+    s.ran = s.ran || new Set();
+    for (const t of cmpTabs()) {
+      if (s.ran.has(t.key)) continue;
+      s.ran.add(t.key);
+      runTab(s, t.key);
+    }
   }
 
   function ensureInfo(s) {
@@ -1987,9 +2069,9 @@
       `<button class="btn ghost" type="button" data-act="close" title="بستن">${svg('close', 22)}</button></div>` +
       `<div class="cmp-prod" data-prod><span>در حال بررسی کالا…</span></div>` +
       `<div class="cmp-tabs" role="tablist">` +
-      CMP_TABS.map((t, i) => `<button type="button" role="tab" data-tab="${t.key}" aria-selected="${i === 0}">${logoImg(t.logo)}<span>${t.label}</span><span class="mk-slot"></span></button>`).join('') +
+      cmpTabs().map((t, i) => `<button type="button" role="tab" data-tab="${t.key}" aria-selected="${i === 0}">${logoImg(t.logo)}<span>${t.label}</span><span class="mk-slot"></span></button>`).join('') +
       `</div><div class="cmp-warn" role="note">${CMP_WARN}</div><div class="cmp-body">` +
-      CMP_TABS.map((t, i) => `<div data-pane="${t.key}" role="tabpanel"${i ? ' hidden' : ''}><div class="msg">${SPIN}<span>در حال آماده‌سازی…</span></div></div>`).join('') +
+      cmpTabs().map((t, i) => `<div data-pane="${t.key}" role="tabpanel"${i ? ' hidden' : ''}><div class="msg">${SPIN}<span>در حال آماده‌سازی…</span></div></div>`).join('') +
       `</div></div>`;
     root.appendChild(wrap);
     const prevOverflow = document.documentElement.style.overflow;
@@ -2024,8 +2106,7 @@
         s.fq = (wrap.querySelector('[data-fq]').value || '').trim();
         runForeign(s);
       } else if (act === 'rate') {
-        const v = parseFloat(wrap.querySelector('[data-rate]').value);
-        try { if (v > 0) localStorage.setItem(USD_KEY, String(v)); else localStorage.removeItem(USD_KEY); } catch (err) { /* storage blocked */ }
+        setManualRate(wrap.querySelector('[data-rate]').value);
         cmpRender(s, 'foreign');
       }
     });
@@ -2038,7 +2119,7 @@
       wrap.querySelector('[data-prod]').innerHTML = `<b>${esc(i.title)}</b>` + (i.dkPrice ? `<span>قیمت در دیجی‌کالا: <b>${fmt(i.dkPrice)} تومان</b></span>` : '');
     };
     const fail = (err) => {
-      for (const t of CMP_TABS) {
+      for (const t of cmpTabs()) {
         s.tabs[t.key] = { status: 'error', err: 'نام کالا خوانده نشد: ' + errText(err) };
         cmpRender(s, t.key);
       }
@@ -2046,7 +2127,8 @@
 
     if (s.started) {
       showProd();
-      for (const t of CMP_TABS) cmpRender(s, t.key);
+      startAll(s);
+      for (const t of cmpTabs()) cmpRender(s, t.key);
     } else {
       ensureInfo(s).then(() => { showProd(); startAll(s); }, fail);
     }
@@ -2066,6 +2148,231 @@
     btn.append(ico, lbl);
     btn.addEventListener('click', showCompare);
     return btn;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Panel: settings and about. Opened from the entry in the profile menu
+   * or from the userscript manager's menu (works when logged out too).
+   * ------------------------------------------------------------------ */
+  const REPO_URL = 'https://github.com/H-MAli/mah-digikala-extensions';
+  const DONATE_URL = 'https://www.coffeete.ir/hmali';
+  const DISCLAIMER_URL = REPO_URL + '/blob/main/DISCLAIMER.fa.md';
+  const BACKUP_APP = 'mah-digikala-extensions'; // marks our backup files
+  const scriptVersion = () => { try { return GM_info.script.version; } catch (e) { return ''; } };
+
+  const PANEL_TABS = [
+    { key: 'settings', label: 'تنظیمات' },
+    { key: 'about', label: 'درباره' },
+  ];
+  const FEATURE_ROWS = [
+    { key: 'table', label: 'جدول کالاها', hint: 'دکمه‌ی «جدول کالاها» در شگفت‌انگیزها و صفحه‌های دسته‌بندی' },
+    { key: 'theme', label: 'حالت نمایش', hint: 'دکمه‌ی روشن / تاریک / سیستم کنار زنگ اعلان؛ اگر خاموش باشد سایت روشن نمایش داده می‌شود' },
+    { key: 'compare', label: 'مقایسه‌ی قیمت', hint: 'دکمه‌ی «مقایسه قیمت» در صفحه‌ی کالا' },
+  ];
+  const SHOP_LABELS = { torob: 'ترب', emalls: 'ایمالز', basalam: 'باسلام', foreign: 'فروشگاه‌های خارجی (آمازون و ای‌بی)' };
+
+  function exportData() {
+    const data = {};
+    for (const k of store.keys()) data[k] = store.get(k);
+    const json = JSON.stringify({ app: BACKUP_APP, version: scriptVersion(), exported: new Date().toISOString(), data }, null, 2);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    a.download = 'mah-digikala-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  // Replaces everything stored with the backup's contents, then reloads the page.
+  async function importData(file) {
+    let j = null;
+    try { j = JSON.parse(await file.text()); } catch (e) { /* handled below */ }
+    if (!j || j.app !== BACKUP_APP || !j.data || typeof j.data !== 'object') {
+      alert('این فایل، پشتیبان افزونه‌های MAH دیجی‌کالا نیست.');
+      return;
+    }
+    if (!confirm('همه‌ی داده‌ها و تنظیمات فعلی افزونه با محتوای این فایل جایگزین می‌شود. ادامه می‌دهید؟')) return;
+    for (const k of store.keys()) store.del(k);
+    for (const k of Object.keys(j.data)) store.set(k, j.data[k]);
+    location.reload();
+  }
+
+  const checkbox = (attrs, checked, disabled) =>
+    `<input type="checkbox" ${attrs}${checked ? ' checked' : ''}${disabled ? ' disabled' : ''}>`;
+
+  function renderSettings() {
+    const st = settings();
+    const usd = manualRate();
+    let h = '<section><h3>قابلیت‌ها</h3>';
+    for (const f of FEATURE_ROWS) {
+      h += `<label class="row">${checkbox(`data-feature="${f.key}"`, st.features[f.key] !== false)}` +
+        `<span><b>${f.label}</b><small>${f.hint}</small></span></label>`;
+    }
+    h += '</section><section><h3>مقایسه‌ی قیمت</h3><div class="shops">';
+    const shopsOn = CMP_TABS.filter((t) => st.shops[t.key] !== false).length;
+    for (const t of CMP_TABS) {
+      const on = st.shops[t.key] !== false;
+      // the last shop left on cannot be turned off (turn off the whole feature instead)
+      h += `<label class="row sm">${checkbox(`data-shop="${t.key}"`, on, !feature('compare') || (on && shopsOn === 1))}` +
+        `<span>${logoImg(t.logo)}${SHOP_LABELS[t.key]}</span></label>`;
+    }
+    h += '</div><label class="field-row"><span>نرخ هر دلار (تومان)</span>' +
+      `<input type="text" inputmode="numeric" dir="ltr" data-usd value="${usd ? usd : ''}" placeholder="خودکار">` +
+      '<small>برای تبدیل قیمت فروشگاه‌های خارجی. خالی بگذارید تا نرخ خودکار (open.er-api.com) استفاده شود.</small></label></section>';
+    h += '<section><h3>نمایش اعداد</h3><div class="shops">' +
+      `<label class="row sm"><input type="radio" name="digits" value="fa"${st.digits !== 'en' ? ' checked' : ''}><span>فارسی (۱۲۳)</span></label>` +
+      `<label class="row sm"><input type="radio" name="digits" value="en"${st.digits === 'en' ? ' checked' : ''}><span>لاتین (123)</span></label>` +
+      '</div><div class="note" data-reload hidden>برای اعمال این تغییر، صفحه را دوباره بارگذاری کنید. ' +
+      '<button class="link" type="button" data-act="reload">بارگذاری دوباره</button></div></section>';
+    h += '<section><h3>پشتیبان‌گیری</h3>' +
+      '<p class="note">همه‌ی داده‌های افزونه فقط در همین مرورگر نگه داشته می‌شوند. برای انتقال به مرورگر دیگر یا نگه‌داری نسخه‌ی پشتیبان، از آن‌ها خروجی بگیرید.</p>' +
+      `<div class="acts"><button class="btn sm" type="button" data-act="export">${svg('download', 18)}<span>خروجی گرفتن</span></button>` +
+      '<button class="btn sm" type="button" data-act="import"><span>بازگردانی از فایل…</span></button>' +
+      '<input type="file" accept="application/json,.json" data-file hidden></div></section>';
+    return h;
+  }
+
+  function renderAbout() {
+    const link = (url, text) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    return '<div class="about">' +
+      `<div class="name"><b>افزونه‌های MAH دیجی‌کالا</b><span class="chip" dir="ltr">v${esc(scriptVersion())}</span></div>` +
+      '<p>ساخته‌ی محمدعلی حق‌شناس. این افزونه پروژه‌ای مستقل، غیررسمی، رایگان و متن‌باز است و هیچ ارتباطی با دیجی‌کالا ندارد. ' +
+      'هر آنچه نشان می‌دهد اطلاعاتی است که به‌طور خودکار و فقط برای استفاده‌ی شخصی شما تولید می‌شود؛ پیش از هر تصمیمی، آن را در خود سایت بررسی کنید.</p>' +
+      '<ul class="links">' +
+      `<li>${link(DISCLAIMER_URL, 'سلب مسئولیت و روش کار')}</li>` +
+      `<li>${link(REPO_URL, 'صفحه‌ی پروژه در گیت‌هاب')}</li>` +
+      `<li>${link(REPO_URL + '/issues', 'گزارش اشکال یا پیشنهاد')}</li>` +
+      `<li>${link(DONATE_URL, 'حمایت از پروژه در کافیته')}</li>` +
+      `<li>مجوز: ${link(REPO_URL + '/blob/main/LICENSE', 'Apache 2.0')}</li>` +
+      '</ul></div>';
+  }
+
+  const PANEL_CSS = `
+    .pnw { position: fixed; inset: 0; z-index: 2147483000; background: rgba(0,0,0,.5); display: flex;
+      align-items: center; justify-content: center; padding: 16px; }
+    .pn { --p: var(--color-primary-700, #ef394e); --bg: #fff; --hover: #fafafb;
+      --n700: var(--color-neutral-700, #3f4064); --n600: var(--color-neutral-600, #62666d); --n500: var(--color-neutral-500, #81858b);
+      --n200: var(--color-neutral-200, #e0e0e2); --n100: var(--color-neutral-100, #f0f0f1);
+      width: min(640px, 100%); max-height: min(760px, 100%); display: flex; flex-direction: column; background: var(--bg);
+      border-radius: 16px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.35);
+      font-family: Digikala, Tahoma, "Segoe UI", sans-serif; font-size: 12px; line-height: 1.8; color: var(--n700); direction: rtl; }
+    :host([data-mah-theme="dark"]) .pn { --bg: var(--color-neutral-000, #222732); --hover: #2b303c; color-scheme: dark; }
+    .pn .top { height: 56px; padding: 0 16px; }
+    .pn-tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--n200); flex: none; overflow-x: auto; }
+    .pn-tabs button { height: 42px; padding: 0 14px; border: 0; background: none; border-bottom: 2px solid transparent;
+      color: var(--n600); font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .pn-tabs button[aria-selected="true"] { color: var(--p); border-bottom-color: var(--p); }
+    .pn-body { padding: 8px 20px 20px; overflow: auto; flex: 1; }
+    .pn section { padding: 14px 0; border-bottom: 1px solid var(--n100); }
+    .pn section:last-child { border-bottom: 0; }
+    .pn h3 { margin: 0 0 8px; font-size: 13px; }
+    .pn .row { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; cursor: pointer; }
+    .pn .row.sm { align-items: center; padding: 2px 0; }
+    .pn .row span { display: inline-flex; flex-direction: column; }
+    .pn .row.sm span { flex-direction: row; align-items: center; gap: 6px; }
+    .pn .row small, .pn .field-row small { color: var(--n500); font-size: 11px; }
+    .pn input[type="checkbox"], .pn input[type="radio"] { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--p); flex: none; }
+    .pn .row.sm input { margin: 0; }
+    .pn input:disabled + span { opacity: .5; }
+    .pn .shops { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+    .pn .field-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 10px; }
+    .pn .field-row small { flex-basis: 100%; }
+    .pn .field-row input { width: 140px; height: 32px; padding: 0 10px; border: 1px solid var(--n200); border-radius: 8px;
+      background: var(--bg); color: inherit; }
+    .pn .note { color: var(--n500); font-size: 11px; margin: 6px 0 0; }
+    .pn .link { border: 0; background: none; color: var(--p); font-weight: 700; cursor: pointer; padding: 0 4px; }
+    .pn .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .pn .btn.sm { height: 32px; padding: 0 12px; text-decoration: none; }
+    .pn .lg { width: 16px; height: 16px; border-radius: 3px; object-fit: contain; }
+    .pn .about { padding: 14px 0; }
+    .pn .about .name { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+    .pn .about p { margin: 12px 0; color: var(--n600); }
+    .pn .links { margin: 0; padding: 0 18px 0 0; }
+    .pn .links li { padding: 3px 0; }
+    .pn .links a { color: var(--p); text-decoration: none; font-weight: 700; }
+    .pn .links a:hover { text-decoration: underline; }
+  `;
+
+  let panelUi = null; // { wrap, close }
+
+  function showPanel(tabKey) {
+    const root = getRoot();
+    if (panelUi) { panelUi.select(tabKey); return; }
+    if (!root.querySelector('style[data-pn]')) {
+      const st = document.createElement('style');
+      st.setAttribute('data-pn', '');
+      st.textContent = PANEL_CSS;
+      root.appendChild(st);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'pnw';
+    wrap.setAttribute('dir', 'rtl');
+    wrap.innerHTML =
+      `<div class="pn" role="dialog" aria-modal="true" aria-label="افزونه‌های MAH دیجی‌کالا">` +
+      `<div class="top"><div class="ttl"><span class="badge">${svg('gear', 20)}</span><span>افزونه‌های MAH دیجی‌کالا</span></div><span class="sp"></span>` +
+      `<button class="btn ghost" type="button" data-act="close" title="بستن">${svg('close', 22)}</button></div>` +
+      '<div class="pn-tabs" role="tablist">' +
+      PANEL_TABS.map((t) => `<button type="button" role="tab" data-tab="${t.key}">${t.label}</button>`).join('') +
+      '</div><div class="pn-body"></div></div>';
+    root.appendChild(wrap);
+    const body = wrap.querySelector('.pn-body');
+    let current = null;
+
+    const render = () => { body.innerHTML = current === 'about' ? renderAbout() : renderSettings(); };
+    const select = (key) => {
+      current = PANEL_TABS.some((t) => t.key === key) ? key : PANEL_TABS[0].key;
+      wrap.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === current)));
+      render();
+    };
+    // another tab changed the settings: show the new values (unless the user is typing in a field here)
+    const onChange = () => { if (current === 'settings' && !body.contains(root.activeElement)) render(); };
+    settingsListeners.push(onChange);
+
+    const close = () => {
+      wrap.remove();
+      document.removeEventListener('keydown', onKey, true);
+      settingsListeners.splice(settingsListeners.indexOf(onChange), 1);
+      panelUi = null;
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey, true);
+
+    wrap.addEventListener('click', (e) => {
+      if (e.target === wrap) return close();
+      const tab = e.target.closest('[data-tab]');
+      if (tab) return select(tab.dataset.tab);
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      const act = b.dataset.act;
+      if (act === 'close') close();
+      else if (act === 'reload') location.reload();
+      else if (act === 'export') exportData();
+      else if (act === 'import') body.querySelector('[data-file]').click();
+    });
+    wrap.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.dataset.feature) {
+        updateSettings((s) => { s.features[t.dataset.feature] = t.checked; });
+        render();
+      } else if (t.dataset.shop) {
+        updateSettings((s) => { s.shops[t.dataset.shop] = t.checked; });
+        render();
+      } else if (t.name === 'digits') {
+        updateSettings((s) => { s.digits = t.value; });
+        render();
+        body.querySelector('[data-reload]').hidden = (t.value === 'en') === (LOCALE === 'en-US');
+      } else if (t.matches('[data-usd]')) {
+        setManualRate(t.value);
+        t.value = manualRate() || '';
+      } else if (t.matches('[data-file]') && t.files && t.files[0]) {
+        importData(t.files[0]);
+        t.value = '';
+      }
+    });
+
+    panelUi = { wrap, close, select };
+    select(tabKey);
   }
 
   /* ------------------------------------------------------------------ *
@@ -2181,57 +2488,68 @@
       item.className = model ? model.className : logout.className;
       item.innerHTML =
         '<a class="flex items-center text-neutral-700 w-full" href="#">' +
-        `<div class="w-12 pr-1 pl-5">${svg('list', 20)}</div>` +
+        `<div class="w-12 pr-1 pl-5">${svg('gear', 20)}</div>` +
         '<div class="flex-1 flex justify-between py-2 items-center grow border-complete-b">' +
         '<span class="text-subtitle-strong" dir="ltr" style="direction:ltr;unicode-bidi:isolate">MAH Digikala Ext.</span></div></a>';
+      item.querySelector('a').addEventListener('click', (e) => { e.preventDefault(); showPanel('settings'); });
     }
     logout.insertAdjacentElement('beforebegin', item);
   }
 
   // Header buttons, in DOM order: [table button | price comparison] [theme button] [bell].
   // In the RTL header an element before the bell sits visually to its right.
+  // Each button is shown only while its feature is turned on in the settings.
   function ensureButtons() {
     ensureMenuItem();
+    const wantTable = feature('table') && !!pageType();
+    const wantCmp = feature('compare') && !!productId() && cmpTabs().length > 0;
     let tableBtn = document.getElementById(BTN_ID);
-    if (tableBtn && !pageType()) { tableBtn.remove(); tableBtn = null; }
+    if (tableBtn && !wantTable) { tableBtn.remove(); tableBtn = null; }
+    let cmpBtn = document.getElementById(CMP_BTN_ID);
+    if (cmpBtn && !wantCmp) { cmpBtn.remove(); cmpBtn = null; }
+    let themeBtn = document.getElementById(THEME_BTN_ID);
+    if (themeBtn && !feature('theme')) { themeBtn.remove(); themeBtn = null; }
 
     const bell = document.querySelector('header a[href="/profile/notification/"]');
     if (!bell) {
       // Pages without the standard header (e.g. the login page): a small floating toggle in the corner.
       // (on www the header renders late, so wait until the page has loaded before giving up on it)
+      if (!feature('theme')) return;
       if (!document.body || (location.hostname === 'www.digikala.com' && document.readyState !== 'complete')) return;
       ensureStyle();
-      let fb = document.getElementById(THEME_BTN_ID);
-      if (!fb) fb = makeThemeButton();
-      if (fb.parentElement !== document.body) document.body.appendChild(fb);
-      fb.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:2147483000;margin:0';
+      if (!themeBtn) themeBtn = makeThemeButton();
+      if (themeBtn.parentElement !== document.body) document.body.appendChild(themeBtn);
+      themeBtn.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:2147483000;margin:0';
       syncThemeButton();
       return;
     }
     ensureStyle();
 
-    let themeBtn = document.getElementById(THEME_BTN_ID);
-    if (!themeBtn) themeBtn = makeThemeButton();
-    if (themeBtn.style.cssText) themeBtn.style.cssText = '';
-    if (themeBtn.nextElementSibling !== bell) bell.insertAdjacentElement('beforebegin', themeBtn);
-    syncThemeButton();
-
-    if (pageType()) {
-      if (!tableBtn) tableBtn = makeTableButton();
-      if (tableBtn.nextElementSibling !== themeBtn) themeBtn.insertAdjacentElement('beforebegin', tableBtn);
+    if (feature('theme')) {
+      if (!themeBtn) themeBtn = makeThemeButton();
+      if (themeBtn.style.cssText) themeBtn.style.cssText = '';
+      if (themeBtn.nextElementSibling !== bell) bell.insertAdjacentElement('beforebegin', themeBtn);
+      syncThemeButton();
     }
+    const anchor = themeBtn || bell; // the other buttons go right before it
 
-    let cmpBtn = document.getElementById(CMP_BTN_ID);
-    if (productId()) {
+    if (wantTable) {
+      if (!tableBtn) tableBtn = makeTableButton();
+      if (tableBtn.nextElementSibling !== anchor) anchor.insertAdjacentElement('beforebegin', tableBtn);
+    }
+    if (wantCmp) {
       if (!cmpBtn) cmpBtn = makeCmpButton();
-      if (cmpBtn.nextElementSibling !== themeBtn) themeBtn.insertAdjacentElement('beforebegin', cmpBtn);
-    } else if (cmpBtn) {
-      cmpBtn.remove();
+      if (cmpBtn.nextElementSibling !== anchor) anchor.insertAdjacentElement('beforebegin', cmpBtn);
     }
   }
 
   function init() {
     initTheme();
+    // a change in the settings (here or in another tab) applies right away
+    settingsListeners.push(() => { applyTheme(); ensureButtons(); });
+    if (window.top === window) {
+      try { GM_registerMenuCommand('تنظیمات و درباره‌ی افزونه', () => showPanel('settings')); } catch (e) { /* not supported */ }
+    }
     // The site is a SPA and re-renders its header, so keep the buttons (and the theme) in place.
     let timer = null;
     new MutationObserver(() => {

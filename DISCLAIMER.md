@@ -112,4 +112,4 @@ Users are responsible for making sure their use of the script is lawful where th
 
 ## 8. Corrections and removal requests
 
-If you believe something the script does or shows is inaccurate, unfair or infringes your rights, please [open an issue](https://github.com/H-MAli/mah-digikala-extensions/issues). This applies to Digikala, a seller, a brand or anyone else. The author will review such requests in good faith and, where justified, correct, change or remove the feature concerned.
+If you believe something the script does or shows is inaccurate, unfair or infringes your rights, please [open an issue](https://github.com/H-MAli/mah-digikala-extensions/issues), or contact the author privately through the contact details on the [author's GitHub profile](https://github.com/H-MAli). This applies to Digikala, a seller, a brand or anyone else. The author will review such requests in good faith and, where justified, correct, change or remove the feature concerned.

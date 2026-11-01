@@ -57,6 +57,23 @@ Foreign prices are converted to Toman using a live exchange rate. You can set yo
 
 > **Double-check every result.** Matches are found by searching for the product's name, so a result can be a different model, colour or capacity, especially in the Foreign tab. Converted prices are approximate and leave out shipping, customs and taxes.
 
+### Settings
+
+Open the settings panel from either place:
+
+- the **MAH Digikala Ext.** entry in your Digikala profile menu (when logged in)
+- the Tampermonkey toolbar menu on any Digikala page
+
+In the panel you can:
+
+- turn each feature (table, theme, price comparison) on or off
+- choose which shops the price comparison searches
+- set your own dollar rate
+- switch between Persian and Latin digits
+- export all of the script's data to a backup file, or restore it from one
+
+The **About** tab has links to this page, bug reports, the disclaimer and donations.
+
 ## Permissions
 
 When you install, Tampermonkey lists the sites the script may contact. They are used only for the price comparison and the exchange rate:
@@ -66,7 +83,7 @@ When you install, Tampermonkey lists the sites the script may contact. They are 
 - `open.er-api.com`: currency exchange rates
 - `google.com`: fallback search when a site returns no direct result
 
-Settings (theme and exchange rate) are kept in your browser's local storage on digikala.com.
+Settings and data are kept only in your browser, in Tampermonkey's own storage. Use **Export** in the settings panel to back them up.
 
 ## Troubleshooting
 
