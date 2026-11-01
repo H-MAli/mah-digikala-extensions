@@ -1499,8 +1499,10 @@
   /* ------------------------------------------------------------------ *
    * Quick filters: the filters picked in a listing's sidebar live in the page
    * address, so they can be saved as named templates and applied on any other
-   * listing page with one click. Stored under "qf" as
-   *   [{ id, name, path, params: [[key, value]] }]   (path: where it was saved).
+   * listing page with one click. A template also keeps the display filters (further below) in use when it was
+   * saved. Stored under "qf" as
+   *   [{ id, name, path, params: [[key, value]], df }]   (path: where it was saved;
+   *   df: { off, rmin, rmax }, or null for none; templates saved before 1.13 have no df and leave them as they are).
    * ------------------------------------------------------------------ */
   const QF_ID = 'mah-dk-qf';
   const QF_KEY = 'qf';
@@ -1521,8 +1523,14 @@
     has_offline_shop_stock: 'خرید حضوری', seller_types: 'نوع فروشنده', brands: 'برند', color_palettes: 'رنگ',
     attributes: 'ویژگی‌ها', categories: 'دسته‌بندی',
   };
-  // A readable list of what the filters do. Prices in the address are in Rials.
-  function qfSummary(params) {
+  // the display filters in force, comparable with a template's (null and "none set" compare equal)
+  const dfSig = (d) => { const x = d || {}; return [x.off ? 1 : 0, x.rmin, x.rmax].join('|'); };
+  const dfCurrent = () => { const d = dfAll(); return dfActive(d) ? { off: !!d.off, rmin: d.rmin, rmax: d.rmax } : null; };
+  // what the quick filters box shows depends on the address and the display filters
+  const qfState = () => location.search + '#' + dfSig(dfCurrent());
+
+  // A readable list of what the filters do (df: display filters, optional). Prices in the address are in Rials.
+  function qfSummary(params, df) {
     const out = [];
     const counts = {};
     let min = null;
@@ -1535,6 +1543,8 @@
     }
     if (min || max) out.unshift('قیمت ' + (min ? 'از ' + fmt(min / 10) + ' ' : '') + (max ? 'تا ' + fmt(max / 10) + ' ' : '') + 'تومان');
     for (const b of Object.keys(counts)) out.push((QF_LABEL[b] || b) + (counts[b] > 1 ? ' (' + L(counts[b]) + ')' : ''));
+    if (df && df.off) out.push('فقط تخفیف‌دارها');
+    if (df && (df.rmin != null || df.rmax != null)) out.push('امتیاز ' + L(df.rmin != null ? df.rmin : 0) + ' تا ' + L(df.rmax != null ? df.rmax : 5));
     return out;
   }
 
@@ -1578,23 +1588,24 @@
   function renderQuickFilters(host) {
     const cur = qfParams(location.search);
     const curSig = qfSig(cur);
+    const curDf = dfCurrent();
     const list = qfAll();
-    const sum = qfSummary(cur);
+    const sum = qfSummary(cur, curDf);
     let h = '<div class="qh"><b>فیلترهای سریع</b><span class="tag">MAH</span></div>';
     if (list.length) {
       for (const t of list) {
         const ps = qfFor(t);
-        const on = ps.length > 0 && qfSig(ps) === curSig;
+        const on = (ps.length > 0 || !!t.df) && qfSig(ps) === curSig && (t.df === undefined || dfSig(t.df) === dfSig(curDf));
         const dropped = ps.length < t.params.length;
-        const info = qfSummary(ps).join('، ') + (dropped ? ' (ویژگی‌های مخصوص دسته‌ی دیگر اعمال نمی‌شوند)' : '');
+        const info = qfSummary(ps, t.df).join('، ') + (dropped ? ' (ویژگی‌های مخصوص دسته‌ی دیگر اعمال نمی‌شوند)' : '');
         h += `<div class="qrow${on ? ' on' : ''}"><button class="qn" type="button" data-act="apply" data-id="${esc(t.id)}" ` +
           `title="${esc(info + (on ? ' · برای برداشتن فیلترها دوباره کلیک کنید' : ''))}">${esc(t.name)}<small>${esc(info || '—')}</small></button>` +
           `<button class="x" type="button" data-act="del" data-id="${esc(t.id)}" title="حذف این قالب">×</button></div>`;
       }
     } else {
-      h += '<p class="note">فیلترهای دلخواه (مثلاً محدوده‌ی قیمت) را از بخش «فیلترها» انتخاب کنید و اینجا به‌صورت قالب ذخیره کنید تا در هر دسته‌ای با یک کلیک اعمال شوند.</p>';
+      h += '<p class="note">فیلترهای دلخواه (مثلاً محدوده‌ی قیمت) را از بخش «فیلترها» و «فیلترهای نمایش» انتخاب کنید و اینجا به‌صورت قالب ذخیره کنید تا در هر دسته‌ای با یک کلیک اعمال شوند.</p>';
     }
-    if (cur.length) {
+    if (cur.length || curDf) {
       h += `<div class="qs"><input type="text" data-name maxlength="40" placeholder="${esc(sum[0] || 'نام قالب')}">` +
         '<button type="button" data-act="save">ذخیره‌ی فیلترهای فعلی</button></div>' +
         `<p class="note">فیلترهای فعلی: ${esc(sum.join('، '))}</p>`;
@@ -1602,17 +1613,18 @@
       h += '<p class="note">برای ساختن قالب تازه، ابتدا فیلترها را انتخاب کنید.</p>';
     }
     host.shadowRoot.querySelector('.qf').innerHTML = h;
-    host.dataset.s = location.search;
+    host.dataset.s = qfState();
   }
 
   function qfSave(host) {
     const cur = qfParams(location.search);
-    if (!cur.length) return;
+    const df = dfCurrent();
+    if (!cur.length && !df) return;
     const inp = host.shadowRoot.querySelector('[data-name]');
-    const name = (String(inp.value || '').trim() || qfSummary(cur)[0] || 'قالب').slice(0, 40);
+    const name = (String(inp.value || '').trim() || qfSummary(cur, df)[0] || 'قالب').slice(0, 40);
     const list = qfAll();
     const i = list.findIndex((t) => t.name === name);
-    const t = { id: i === -1 ? Date.now().toString(36) : list[i].id, name, path: location.pathname, params: cur };
+    const t = { id: i === -1 ? Date.now().toString(36) : list[i].id, name, path: location.pathname, params: cur, df };
     if (i === -1) list.push(t); else list[i] = t;
     store.set(QF_KEY, list);
     renderQuickFilters(host);
@@ -1669,7 +1681,10 @@
           renderQuickFilters(host);
         } else if (b.dataset.act === 'apply' && t) {
           // a click on the template already in use takes its filters off again
-          location.assign(b.closest('.qrow').classList.contains('on') ? qfUrl(null) : qfUrl(t));
+          const off = b.closest('.qrow').classList.contains('on');
+          if (t.df !== undefined) dfSet(off ? DF_NONE : t.df || DF_NONE);
+          const url = off ? qfUrl(null) : qfUrl(t);
+          if (url !== location.pathname + location.search) location.assign(url);
         }
       });
       root.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-name]')) qfSave(host); });
@@ -1677,7 +1692,7 @@
     host.setAttribute(THEME_ATTR, currentMode());
     if (side.firstElementChild !== host) side.prepend(host);
     // the site changes the address without reloading when a filter is picked
-    if (host.dataset.s !== location.search || !host.shadowRoot.querySelector('.qh')) renderQuickFilters(host);
+    if (host.dataset.s !== qfState() || !host.shadowRoot.querySelector('.qh')) renderQuickFilters(host);
   }
 
   /* ------------------------------------------------------------------ *
@@ -1704,9 +1719,10 @@
   const DF_NONE = { off: false, rmin: null, rmax: null };
   function dfSet(v) {
     store.set(DF_KEY, Object.assign(dfAll(), v));
+    ensureQuickFilters();
     ensureDisplayFilters();
   }
-  store.watch(DF_KEY, () => ensureDisplayFilters());
+  store.watch(DF_KEY, () => { ensureQuickFilters(); ensureDisplayFilters(); });
   // a typed rating, kept within 0-5; the ends of the scale mean "no limit"
   function dfRating(v, key) {
     const n = num(v);
@@ -4040,7 +4056,7 @@
     return `<svg class="spark" viewBox="0 0 100 24" width="100" height="24" aria-hidden="true"><path d="${d}" fill="none" stroke="#f57c00" stroke-width="1.6"/></svg>`;
   }
 
-  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { ensureDisplayFilters, qfUrl, qfSummary, qfParams, discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
+  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { ensureDisplayFilters, ensureQuickFilters, qfUrl, qfSummary, qfParams, discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
 
   /* ------------------------------------------------------------------ *
    * Panel: settings and about. Opened from the entry in the profile menu

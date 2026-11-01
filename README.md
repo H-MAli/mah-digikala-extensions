@@ -57,6 +57,7 @@ On the same listing pages, a **Quick filters** box sits inside Digikala's filter
 - Filters that only exist in one category (the category's own attributes) are applied only in the category where you saved the template. Everything else carries over.
 - Saving under an existing name replaces that template, and **×** removes one.
 - The search text you typed is kept when you apply a template.
+- A template also saves the **Display filters** below (discounted only, rating range) that are in use when you save it, and applying it sets them again. A template can hold display filters alone.
 
 Below it, a **Display filters** box has a **Show discounted only** switch and a **Rating** range slider (0 to 5 by default). When both are set, a product has to match both; a product without a rating doesn't match a rating range. They hide the products that don't match on the page itself, so nothing changes in the page address or in Digikala's result count. They work on the products already loaded. In Digikala's newer scrolling feed, which lays products out in fixed rows, those products are dimmed rather than hidden so the rows don't break up; resting the pointer on one for a moment shows it in full. If none of the loaded products match, a note at the top of the list says so and has a button to clear the display filters; scrolling down may load more products. The display filters are remembered and apply on every listing page until you clear them.
 
