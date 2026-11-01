@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.7.1
+// @version      1.8.0
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -10,8 +10,8 @@
 // @supportURL   https://github.com/H-MAli/mah-digikala-extensions/issues
 // @updateURL    https://raw.githubusercontent.com/H-MAli/mah-digikala-extensions/main/mah-digikala.extensions.user.js
 // @downloadURL  https://raw.githubusercontent.com/H-MAli/mah-digikala-extensions/main/mah-digikala.extensions.user.js
-// @description  Enhancements for Digikala: a sortable, filterable table view for product listings, a light / dark theme switcher, price comparison with other shops, and price history with a discount check.
-// @description:fa  بهبودهایی برای دیجی‌کالا: نمای جدولی کالاها با مرتب‌سازی و فیلتر، انتخاب حالت نمایش روشن / تاریک، مقایسه‌ی قیمت با فروشگاه‌های دیگر، و سابقه‌ی قیمت با بررسی تخفیف.
+// @description  Enhancements for Digikala: a sortable, filterable table view for product listings, a light / dark theme switcher, price comparison with other shops, price history with a discount check, and a watchlist with price alerts.
+// @description:fa  بهبودهایی برای دیجی‌کالا: نمای جدولی کالاها با مرتب‌سازی و فیلتر، انتخاب حالت نمایش روشن / تاریک، مقایسه‌ی قیمت با فروشگاه‌های دیگر، سابقه‌ی قیمت با بررسی تخفیف، و فهرست پیگیری با هشدار قیمت.
 // @match        https://www.digikala.com/*
 // @match        https://auth.digikala.com/*
 // @match        https://accounts.digikala.com/*
@@ -23,6 +23,7 @@
 // @grant        GM_listValues
 // @grant        GM_addValueChangeListener
 // @grant        GM_registerMenuCommand
+// @grant        GM_notification
 // @connect      api.torob.com
 // @connect      torob.com
 // @connect      emalls.ir
@@ -78,6 +79,8 @@
     // how prices are recorded: 'manual' (button on the product page only), 'visit' (when a product page is opened),
     // or a schedule ('6h' | '12h' | 'daily' | 'weekly') for the watchlist on top of 'visit'
     history: { freq: 'daily' },
+    // watchlist alerts: price drop, back in stock, and whether to show them as desktop notifications too
+    alerts: { drop: true, stock: true, desktop: false },
   };
   // Saved values over the defaults, one level deep, so settings added in later versions get their default.
   function mergeSettings(saved) {
@@ -547,6 +550,10 @@
     .nm a { color: var(--n700); font-weight: 700; text-decoration: none; line-height: 2;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .nm a:hover { color: var(--p); }
+    .nm .star { flex: none; margin-inline-start: auto; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none;
+      color: var(--n400); font-size: 18px; line-height: 1; cursor: pointer; }
+    .nm .star:hover { background: var(--n100); }
+    .nm .star.on { color: #f9a825; }
     .price { font-weight: 700; font-size: 13px; }
     .old { color: var(--n300); text-decoration: line-through; }
     .pill { display: inline-block; min-width: 40px; padding: 0 8px; border-radius: 16px; background: var(--pill);
@@ -593,7 +600,7 @@
       document.documentElement.appendChild(host);
       const root = host.attachShadow({ mode: 'open' });
       const st = document.createElement('style');
-      st.textContent = CSS + DC_CSS;
+      st.textContent = CSS + DC_CSS + TOAST_CSS;
       root.appendChild(st);
     }
     return host.shadowRoot;
@@ -855,7 +862,9 @@
     const rowHtml = (r, i) =>
       `<tr><td class="idx">${L(i)}</td>` +
       `<td><div class="nm">${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" decoding="async">` : '<i></i>'}` +
-      `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div></td>` +
+      `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` +
+      (hist ? `<button class="star${watched.has(r.id) ? ' on' : ''}" type="button" data-act="star" data-id="${esc(r.id)}" title="${watched.has(r.id) ? 'حذف از فهرست پیگیری' : 'افزودن به فهرست پیگیری'}">${watched.has(r.id) ? '★' : '☆'}</button>` : '') +
+      '</div></td>' +
       `<td class="num">${r.score == null ? '<span class="dash">—</span>' : `<span class="rate">${svg('star', 14)}${fmtScore(r.score)}</span>`}</td>` +
       `<td class="num price">${fmt(r.price)}</td>` +
       `<td class="num old">${r.old == null ? '<span class="dash">—</span>' : fmt(r.old)}</td>` +
@@ -888,7 +897,9 @@
       return [...main, ...rest];
     }
 
+    let watched = new Set();
     function render() {
+      watched = new Set(Object.keys(wlAll()));
       const list = currentList();
       $('[data-count]').textContent =
         (list.length !== rows.length ? L(list.length) + ' از ' + L(rows.length) : L(list.length)) + ' کالا';
@@ -1068,6 +1079,14 @@
         case 'close': close(); break;
         case 'csv': exportCsv(); break;
         case 'dcheck': checkDiscounts(); break;
+        case 'star': {
+          const r = rows.find((x) => x.id === act.dataset.id);
+          if (!r) break;
+          if (inWatchlist(r.id)) wlRemove(r.id);
+          else wlAdd(r.id, { t: r.title, img: r.img, obs: obsFromRow(r) });
+          render();
+          break;
+        }
         case 'gorder': st.groupDesc = !st.groupDesc; syncGroupUi(); render(); break;
         case 'collapse': groupsOf(currentList()).forEach((g) => st.collapsed.add(g.label)); render(); break;
         case 'expand': st.collapsed.clear(); render(); break;
@@ -2255,10 +2274,12 @@
   const obsFromRow = (r) => ({ price: r.price, rrp: r.old || 0, avail: 1 }); // table rows are in stock
   function recordRows(rows) {
     if (!autoRecord()) return;
+    const wl = wlAll();
     for (const r of rows) {
       if (r.recorded || !r.id) continue;
       r.recorded = true;
       recordPrice(r.id, obsFromRow(r), r.title);
+      if (wl[r.id]) wlObserve(r.id, obsFromRow(r), r.title, r.img);
     }
   }
 
@@ -2741,14 +2762,17 @@
     button { font-family: inherit; font-size: 11px; height: 28px; padding: 0 10px; border: 1px solid var(--n200); border-radius: 6px;
       background: var(--bg); color: var(--n700); font-weight: 700; cursor: pointer; white-space: nowrap; }
     button:hover { background: var(--n100); }
+    button[aria-pressed="true"] { border-color: #f9a825; color: #b26a00; }
+    :host([data-mah-theme="dark"]) button[aria-pressed="true"] { color: #ffca6b; }
     .ok { color: #2e7d32; font-size: 11px; }
   ` + DC_CSS;
 
   let pageProd = null; // { id, cur, title, res, state: 'loading' | 'ready' | 'error', recorded }
   const productCache = new Map();
-  function fetchProduct(id) {
+  // fresh = skip the 5-minute cache (scheduled checks)
+  function fetchProduct(id, fresh) {
     const hit = productCache.get(id);
-    if (hit && Date.now() - hit.at < 5 * 60e3) return hit.p;
+    if (!fresh && hit && Date.now() - hit.at < 5 * 60e3) return hit.p;
     const p = fetch('https://api.digikala.com/v2/product/' + id + '/', { headers: { Accept: 'application/json' } })
       .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then((j) => { const pr = j && j.data && j.data.product; if (!pr || pr.is_inactive) throw new Error('not found'); return pr; });
@@ -2772,7 +2796,8 @@
       const p = await fetchProduct(pp.id);
       pp.cur = obsFromProduct(p);
       pp.title = String(p.title_fa || p.title_en || '').trim();
-      pp.recorded = recordPrice(pp.id, pp.cur, pp.title);
+      pp.img = p.images && p.images.main && Array.isArray(p.images.main.url) ? String(p.images.main.url[0] || '') : '';
+      pp.recorded = autoRecord() ? observe(pp.id, pp.cur, pp.title, pp.img) : false;
       pp.res = (await checkProduct(pp.id, pp.cur)).res;
       pp.state = 'ready';
     } catch (e) {
@@ -2796,6 +2821,7 @@
     host.shadowRoot.querySelector('.body').innerHTML =
       `<span class="tag">MAH · بررسی تخفیف</span>${mid}<span class="sp"></span>` +
       (manual && pp.state === 'ready' ? (pp.recorded ? '<span class="ok">قیمت امروز ثبت شد</span>' : '<button type="button" data-act="record">ثبت قیمت</button>') : '') +
+      (pp.state === 'ready' ? `<button type="button" data-act="watch" aria-pressed="${inWatchlist(pp.id)}">${inWatchlist(pp.id) ? '★ در فهرست پیگیری' : '☆ پیگیری قیمت'}</button>` : '') +
       '<button type="button" data-act="chart">نمودار قیمت</button>';
   }
 
@@ -2817,8 +2843,12 @@
         if (!b || !pp) return;
         if (b.dataset.act === 'chart') openChartDialog(pp.id, pp.cur, pp.title);
         else if (b.dataset.act === 'ack') ensureDiscountAck();
-        else if (b.dataset.act === 'record' && pp.cur) {
-          pp.recorded = recordPrice(pp.id, pp.cur, pp.title, true) || true;
+        else if (b.dataset.act === 'watch') {
+          if (inWatchlist(pp.id)) wlRemove(pp.id);
+          else wlAdd(pp.id, { t: pp.title, img: pp.img, obs: pp.cur });
+          renderStrip();
+        } else if (b.dataset.act === 'record' && pp.cur) {
+          pp.recorded = observe(pp.id, pp.cur, pp.title, pp.img, true) || true;
           checkProduct(pp.id, pp.cur).then((r) => { pp.res = r.res; renderStrip(); });
           renderStrip();
         }
@@ -2877,7 +2907,304 @@
     ensureModalSection();
   }
 
-  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart });
+  /* ------------------------------------------------------------------ *
+   * Watchlist: products the user follows. Stored under "wl" as
+   *   { [id]: { t, img, added, target, last: { price, rrp, avail, ts }, err } }.
+   * Every fresh price the script sees for one of them goes through wlObserve,
+   * which raises the alerts (price drop, target price, back in stock).
+   * ------------------------------------------------------------------ */
+  const WL_KEY = 'wl';
+  const wlAll = () => store.get(WL_KEY, {});
+  const inWatchlist = (id) => !!wlAll()[id];
+  const wlListeners = [];
+  const wlChanged = () => wlListeners.forEach((fn) => fn());
+  store.watch(WL_KEY, wlChanged);
+
+  function wlAdd(id, info) {
+    const wl = wlAll();
+    if (wl[id]) return false;
+    const o = info.obs;
+    wl[id] = {
+      t: String(info.t || '').slice(0, 200),
+      img: info.img || '',
+      added: Date.now(),
+      target: null,
+      last: o ? { price: o.price, rrp: o.rrp, avail: o.avail ? 1 : 0, ts: Date.now() } : null,
+    };
+    store.set(WL_KEY, wl);
+    if (o) recordPrice(id, o, info.t);
+    wlChanged();
+    return true;
+  }
+  function wlRemove(id) {
+    const wl = wlAll();
+    delete wl[id];
+    store.set(WL_KEY, wl);
+    wlChanged();
+  }
+  function wlSetTarget(id, v) {
+    const wl = wlAll();
+    if (!wl[id]) return;
+    const n = num(v);
+    wl[id].target = n > 0 ? n : null;
+    store.set(WL_KEY, wl);
+    wlChanged();
+  }
+
+  // A fresh price for a product: updates its watchlist entry (if any) and raises alerts against the previous price.
+  function wlObserve(id, obs, title, img) {
+    const wl = wlAll();
+    const w = wl[id];
+    if (!w || !obs) return;
+    const prev = w.last;
+    const now = Date.now();
+    w.last = { price: obs.price, rrp: obs.rrp, avail: obs.avail ? 1 : 0, ts: now };
+    if (title) w.t = String(title).slice(0, 200);
+    if (img) w.img = img;
+    delete w.err;
+    const al = settings().alerts;
+    const out = [];
+    if (prev && al.drop && prev.avail && obs.avail && obs.price < prev.price) out.push({ kind: 'drop' });
+    if (prev && al.stock && !prev.avail && obs.avail) out.push({ kind: 'stock' });
+    if (w.target && obs.avail && obs.price <= w.target && !(prev && prev.avail && prev.price <= w.target)) out.push({ kind: 'target', target: w.target });
+    store.set(WL_KEY, wl);
+    wlChanged();
+    if (out.length) raiseAlerts(out.map((a) => Object.assign(a, { id, t: w.t, price: obs.price, prev: prev ? prev.price : null, ts: now })));
+  }
+
+  // One price observation from any source: saved in the history and passed to the watchlist.
+  function observe(id, obs, title, img, force) {
+    const rec = recordPrice(id, obs, title, force);
+    wlObserve(id, obs, title, img);
+    return rec;
+  }
+
+  /* ---------- alerts ---------- */
+  const ALERTS_KEY = 'alerts'; // newest first: [{ id, kind, t, price, prev, target, ts, seen }]
+  const unseenAlerts = () => store.get(ALERTS_KEY, []).filter((a) => !a.seen).length;
+  const productUrl = (id) => 'https://www.digikala.com/product/dkp-' + id + '/';
+  function alertText(a) {
+    const t = '«' + (a.t || 'کالا') + '»';
+    if (a.kind === 'drop') return `قیمت ${t} از ${fmt(a.prev)} به ${fmt(a.price)} تومان کاهش یافت.`;
+    if (a.kind === 'target') return `قیمت ${t} به ${fmt(a.price)} تومان رسید (قیمت هدف شما: ${fmt(a.target)} تومان).`;
+    return `${t} دوباره موجود شد (${fmt(a.price)} تومان).`;
+  }
+  function raiseAlerts(list) {
+    const all = store.get(ALERTS_KEY, []);
+    store.set(ALERTS_KEY, list.concat(all).slice(0, 50));
+    showToasts(list);
+    if (settings().alerts.desktop) {
+      for (const a of list) {
+        try {
+          GM_notification({ title: 'افزونه‌های MAH دیجی‌کالا', text: alertText(a), onclick: () => window.open(productUrl(a.id), '_blank') });
+        } catch (e) { /* notifications not available */ }
+      }
+    }
+    ensureMenuItem();
+  }
+  function markAlertsSeen() {
+    const all = store.get(ALERTS_KEY, []);
+    if (!all.some((a) => !a.seen)) return;
+    store.set(ALERTS_KEY, all.map((a) => Object.assign(a, { seen: true })));
+    ensureMenuItem();
+  }
+
+  const TOAST_CSS = `
+    .toasts { position: fixed; bottom: 16px; left: 16px; z-index: 2147483001; display: flex; flex-direction: column; gap: 8px;
+      width: min(380px, calc(100vw - 32px)); font-family: Digikala, Tahoma, "Segoe UI", sans-serif; font-size: 12px; line-height: 1.8; direction: rtl; }
+    .toast { --bg: #fff; --n700: var(--color-neutral-700, #3f4064); --n200: var(--color-neutral-200, #e0e0e2); --p: var(--color-primary-700, #ef394e);
+      background: var(--bg); color: var(--n700); border: 1px solid var(--n200); border-inline-start: 4px solid #1a56b4; border-radius: 10px;
+      padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); display: flex; gap: 8px; align-items: flex-start; }
+    :host([data-mah-theme="dark"]) .toast { --bg: var(--color-neutral-000, #222732); }
+    .toast p { margin: 0; flex: 1; }
+    .toast a { color: var(--p); font-weight: 700; text-decoration: none; }
+    .toast button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0; line-height: 1; }
+  `;
+  function showToasts(list) {
+    const root = getRoot();
+    let box = root.querySelector('.toasts');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'toasts';
+      root.appendChild(box);
+    }
+    for (const a of list) {
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.setAttribute('role', 'status');
+      el.innerHTML = `<p>${esc(alertText(a))} <a href="${productUrl(a.id)}" target="_blank" rel="noopener">مشاهده</a></p>` +
+        `<button type="button" title="بستن">${svg('close', 16)}</button>`;
+      el.querySelector('button').addEventListener('click', () => el.remove());
+      box.appendChild(el);
+      setTimeout(() => el.remove(), 15000);
+    }
+  }
+
+  /* ---------- scheduled checks ----------
+   * In the timed modes the whole watchlist is checked once per interval, one product
+   * at a time, about 1.5 s apart. The queue is kept in storage, so a run that stops
+   * (tab closed) continues in the next Digikala tab; a lock with a heartbeat makes sure
+   * only one tab works on it at a time. */
+  const FREQ_MS = { '6h': 6 * 3600e3, '12h': 12 * 3600e3, daily: DAY, weekly: 7 * DAY };
+  const RUN_KEY = 'wlRun'; // { queue: [ids], total, started, forced } while a run is in progress
+  const LAST_KEY = 'wlLast'; // when the last complete run finished
+  const LOCK_KEY = 'wlLock'; // { tab, ts }
+  const LOCK_STALE = 20e3;
+  const CHECK_GAP = 1500;
+  const TAB_ID = Math.random().toString(36).slice(2);
+  let runningHere = false;
+
+  const wlInterval = () => (historyOn() ? FREQ_MS[settings().history.freq] || 0 : 0);
+  const wlNextRun = () => { const ms = wlInterval(); return ms ? store.get(LAST_KEY, 0) + ms : null; };
+  const wlRunState = () => store.get(RUN_KEY) || null;
+
+  function takeLock() {
+    const l = store.get(LOCK_KEY);
+    if (l && l.tab !== TAB_ID && Date.now() - l.ts < LOCK_STALE) return false;
+    store.set(LOCK_KEY, { tab: TAB_ID, ts: Date.now() });
+    return true;
+  }
+
+  // forced = "check now" (records even in manual mode)
+  function startRun(forced, ids) {
+    if (wlRunState()) return pumpRun();
+    const queue = ids || Object.keys(wlAll());
+    if (!queue.length) return;
+    store.set(RUN_KEY, { queue, total: queue.length, started: Date.now(), forced: !!forced });
+    wlChanged();
+    pumpRun();
+  }
+  function stopRun() {
+    store.del(RUN_KEY);
+    wlChanged();
+  }
+
+  async function checkWatched(id, force) {
+    try {
+      const p = await fetchProduct(id, true);
+      const im = p.images && p.images.main && Array.isArray(p.images.main.url) ? String(p.images.main.url[0] || '') : '';
+      observe(id, obsFromProduct(p), String(p.title_fa || p.title_en || '').trim(), im, force);
+    } catch (e) {
+      const wl = wlAll();
+      if (wl[id]) { wl[id].err = /not found/.test(errText(e)) ? 'gone' : 'error'; store.set(WL_KEY, wl); }
+    }
+  }
+
+  async function pumpRun() {
+    if (runningHere || location.hostname !== 'www.digikala.com') return;
+    runningHere = true;
+    try {
+      for (;;) {
+        const run = wlRunState();
+        if (!run) break;
+        if (!run.queue.length) { store.del(RUN_KEY); store.set(LAST_KEY, Date.now()); break; }
+        if (!takeLock()) break; // another tab is on it
+        const id = run.queue[0];
+        await checkWatched(id, run.forced);
+        const now = wlRunState();
+        if (!now) break; // stopped meanwhile
+        now.queue = now.queue.filter((x) => x !== id);
+        store.set(RUN_KEY, now);
+        wlChanged();
+        if (now.queue.length) await sleep(CHECK_GAP);
+      }
+    } finally {
+      runningHere = false;
+      const l = store.get(LOCK_KEY);
+      if (l && l.tab === TAB_ID) store.del(LOCK_KEY);
+      wlChanged();
+    }
+  }
+
+  function schedTick() {
+    if (location.hostname !== 'www.digikala.com') return;
+    if (wlRunState()) { pumpRun(); return; }
+    const next = wlNextRun();
+    if (next != null && Date.now() >= next && Object.keys(wlAll()).length) startRun(false);
+  }
+
+  /* ---------- importing Digikala's favourites (on its favourites page) ---------- */
+  const FAV_BAR_ID = 'mah-dk-fav-bar';
+  const isFavoritesPage = () => /^\/profile\/favorites\/?/.test(location.pathname);
+
+  // All favourite products, through the same endpoint the favourites page uses (needs the user's session).
+  async function fetchFavorites(progress) {
+    const out = [];
+    for (let page = 1; page <= 200; page++) {
+      const r = await fetch('https://api.digikala.com/v1/profile/favorite-products/?page=' + page, { credentials: 'include', headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = ((await r.json()) || {}).data || {};
+      for (const p of d.products || []) {
+        const im = p.images && p.images.main && Array.isArray(p.images.main.url) ? String(p.images.main.url[0] || '') : '';
+        out.push({ id: String(p.id), t: String(p.title_fa || p.title_en || '').trim(), img: im, obs: obsFromProduct(p) });
+      }
+      progress(out.length);
+      if (page >= ((d.pager && d.pager.total_pages) || 1)) break;
+    }
+    return out;
+  }
+
+  async function importFavorites(bar) {
+    const msg = bar.shadowRoot.querySelector('.msgx');
+    const btn = bar.shadowRoot.querySelector('button');
+    btn.disabled = true;
+    let items;
+    try {
+      items = await fetchFavorites((n) => { msg.textContent = 'در حال دریافت علاقه‌مندی‌ها… ' + L(n); });
+    } catch (e) {
+      // not reachable that way: read the cards on this page instead (scrolls to load them all)
+      console.warn('[MAH Digikala Extensions] favourites API:', e);
+      msg.textContent = 'در حال خواندن کالاهای این صفحه…';
+      const src = createScrollSource();
+      await src.load(Infinity, { stopped: false, update: (n) => { msg.textContent = 'در حال خواندن کالاهای این صفحه… ' + L(n); } });
+      items = src.rows.map((r) => ({ id: r.id, t: r.title, img: r.img, obs: obsFromRow(r) }));
+    }
+    let added = 0;
+    for (const it of items) if (wlAdd(it.id, it)) added++;
+    msg.textContent = items.length
+      ? `${L(added)} کالا به فهرست پیگیری افزوده شد` + (items.length - added ? ` و ${L(items.length - added)} کالا از قبل در فهرست بود.` : '.')
+      : 'کالایی در علاقه‌مندی‌ها پیدا نشد.';
+    btn.disabled = false;
+  }
+
+  function ensureFavoritesBar() {
+    const want = isFavoritesPage() && historyOn() && location.hostname === 'www.digikala.com';
+    let bar = document.getElementById(FAV_BAR_ID);
+    if (!want) { if (bar) bar.remove(); return; }
+    const main = document.querySelector('main');
+    if (!main) return;
+    if (bar && main.contains(bar)) return;
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = FAV_BAR_ID;
+      const root = bar.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${STRIP_CSS} :host{margin:12px 0} .msgx{color:var(--n500);font-size:11px}</style>` +
+        '<div class="st"><span class="tag">MAH</span><span>علاقه‌مندی‌ها را به فهرست پیگیری افزونه اضافه کنید تا قیمتشان خودکار بررسی شود.</span>' +
+        '<span class="sp"></span><span class="msgx"></span><button type="button">افزودن همه به فهرست پیگیری</button></div>';
+      root.querySelector('button').addEventListener('click', () => importFavorites(bar));
+    }
+    bar.setAttribute(THEME_ATTR, currentMode());
+    main.prepend(bar);
+  }
+
+  /* ---------- small trend line for the watchlist ---------- */
+  function sparkline(runs) {
+    const now = Date.now();
+    const pts = [];
+    for (const [from, to, price, , avail] of runs || []) {
+      if (!avail || to < now - 90 * DAY) continue;
+      pts.push([Math.max(from, now - 90 * DAY), price], [to, price]);
+    }
+    if (pts.length < 2) return '<span class="dash">—</span>';
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1);
+    const lo = Math.min(...ys), hi = Math.max(...ys, lo + 1);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + (((p[0] - x0) / (x1 - x0)) * 96 + 2).toFixed(1) + ' ' + ((1 - (p[1] - lo) / (hi - lo)) * 20 + 2).toFixed(1)).join('');
+    return `<svg class="spark" viewBox="0 0 100 24" width="100" height="24" aria-hidden="true"><path d="${d}" fill="none" stroke="#f57c00" stroke-width="1.6"/></svg>`;
+  }
+
+  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
 
   /* ------------------------------------------------------------------ *
    * Panel: settings and about. Opened from the entry in the profile menu
@@ -2890,6 +3217,7 @@
   const scriptVersion = () => { try { return GM_info.script.version; } catch (e) { return ''; } };
 
   const PANEL_TABS = [
+    { key: 'watch', label: 'فهرست پیگیری' },
     { key: 'settings', label: 'تنظیمات' },
     { key: 'about', label: 'درباره' },
   ];
@@ -2966,6 +3294,12 @@
       `<p class="note">سابقه‌ی ${L(historyCount())} کالا در این مرورگر ثبت شده است. ` +
       `<a href="${DISCLAIMER_URL}" target="_blank" rel="noopener noreferrer">روش کار بررسی تخفیف</a></p>` +
       '<div class="acts"><button class="btn sm" type="button" data-act="delhist">حذف همه‌ی سوابق قیمت</button></div></section>';
+    h += '<section><h3>هشدارهای فهرست پیگیری</h3>' +
+      `<label class="row sm">${checkbox('data-alert="drop"', st.alerts.drop, !feature('history'))}<span>کاهش قیمت</span></label>` +
+      `<label class="row sm">${checkbox('data-alert="stock"', st.alerts.stock, !feature('history'))}<span>موجود شدن دوباره</span></label>` +
+      `<label class="row sm">${checkbox('data-alert="desktop"', st.alerts.desktop, !feature('history'))}<span>نمایش هشدارها به‌صورت اعلان دسکتاپ هم</span></label>` +
+      '<p class="note">هشدار رسیدن به قیمت هدف همیشه فعال است؛ قیمت هدف هر کالا را در فهرست پیگیری وارد کنید. ' +
+      'هشدارها فقط وقتی صادر می‌شوند که زبانه‌ای از دیجی‌کالا باز باشد.</p></section>';
     h += '<section><h3>نمایش اعداد</h3><div class="shops">' +
       `<label class="row sm"><input type="radio" name="digits" value="fa"${st.digits !== 'en' ? ' checked' : ''}><span>فارسی (۱۲۳)</span></label>` +
       `<label class="row sm"><input type="radio" name="digits" value="en"${st.digits === 'en' ? ' checked' : ''}><span>لاتین (123)</span></label>` +
@@ -2977,6 +3311,62 @@
       '<button class="btn sm" type="button" data-act="import"><span>بازگردانی از فایل…</span></button>' +
       '<input type="file" accept="application/json,.json" data-file hidden></div></section>';
     return h;
+  }
+
+  function renderWatch() {
+    if (!historyOn()) {
+      return '<div class="msg"><span>فهرست پیگیری بخشی از قابلیت «سابقه‌ی قیمت و بررسی تخفیف» است که در تنظیمات خاموش است.</span></div>';
+    }
+    const wl = wlAll();
+    const ids = Object.keys(wl).sort((a, b) => (wl[b].added || 0) - (wl[a].added || 0));
+    const run = wlRunState();
+    const last = store.get(LAST_KEY, 0);
+    const next = wlNextRun();
+    let h = '<section class="wl-head"><div class="wl-sum">' +
+      `<b>${L(ids.length)} کالا</b>` +
+      `<small>آخرین بررسی کامل: ${last ? fmtDate(last, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}` +
+      ' · بررسی بعدی: ' + (next ? (next <= Date.now() ? 'به‌زودی' : fmtDate(next, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : 'فقط دستی') + '</small></div>';
+    if (run) {
+      h += `<span class="wl-prog"><span class="cspin"></span>در حال بررسی ${L(Math.min(run.total, run.total - run.queue.length + 1))} از ${L(run.total)}</span>` +
+        '<button class="btn sm" type="button" data-act="wlstop">توقف</button>';
+    } else if (ids.length) {
+      h += '<button class="btn sm pri" type="button" data-act="wlcheck">بررسی همین حالا</button>';
+    }
+    h += '</section>';
+
+    const alerts = store.get(ALERTS_KEY, []).slice(0, 10);
+    if (alerts.length) {
+      h += '<section><h3>هشدارهای اخیر</h3><ul class="wl-alerts">' + alerts.map((a) =>
+        `<li class="${a.seen ? '' : 'new'}"><span>${esc(alertText(a))}</span> <a href="${productUrl(a.id)}" target="_blank" rel="noopener">مشاهده</a>` +
+        `<small>${fmtDate(a.ts, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></li>`).join('') +
+        '</ul><button class="link" type="button" data-act="clearalerts">پاک کردن هشدارها</button></section>';
+    }
+
+    if (!ids.length) {
+      return h + '<div class="msg col"><b>فهرست پیگیری خالی است.</b>' +
+        '<span>با دکمه‌ی «☆ پیگیری قیمت» در صفحه‌ی کالا یا ستاره‌ی کنار نام کالا در جدول کالاها، کالا اضافه کنید.</span>' +
+        '<span>کالاهای <a href="https://www.digikala.com/profile/favorites/" target="_blank" rel="noopener">علاقه‌مندی‌های دیجی‌کالا</a> را هم می‌توانید یک‌جا از همان صفحه اضافه کنید.</span></div>';
+    }
+    h += '<div class="wl-list">';
+    for (const id of ids) {
+      const w = wl[id];
+      const lp = w.last;
+      let price = '<span class="dash">—</span>';
+      if (lp) price = lp.avail ? `<b>${fmt(lp.price)}</b> تومان` + (lp.rrp > lp.price ? ` <s>${fmt(lp.rrp)}</s>` : '') : '<span class="oos">ناموجود</span>';
+      const err = w.err === 'gone' ? '<small class="err">این کالا در دیجی‌کالا پیدا نشد.</small>' : w.err ? '<small class="err">آخرین بررسی ناموفق بود.</small>' : '';
+      h += `<div class="wl-row" data-id="${esc(id)}">` +
+        (w.img ? `<img src="${esc(w.img)}" alt="" loading="lazy">` : '<i class="ph"></i>') +
+        `<div class="wl-main"><a href="${productUrl(id)}" target="_blank" rel="noopener">${esc(w.t || 'کالای ' + id)}</a>` +
+        `<div class="wl-meta">${price}${lp ? `<small>بررسی: ${fmtDate(lp.ts, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>` : ''}${err}</div></div>` +
+        sparkline(getHist(id).r) +
+        `<label class="wl-target"><small>قیمت هدف</small><input type="text" inputmode="numeric" dir="ltr" data-target="${esc(id)}" value="${w.target ? w.target : ''}" placeholder="—"></label>` +
+        '<div class="wl-acts">' +
+        `<button class="btn sm" type="button" data-act="wlchart" data-id="${esc(id)}" title="نمودار قیمت">نمودار</button>` +
+        `<button class="btn sm" type="button" data-act="wlone" data-id="${esc(id)}" title="بررسی قیمت همین کالا">بررسی</button>` +
+        `<button class="btn ghost sm" type="button" data-act="wldel" data-id="${esc(id)}" title="حذف از فهرست پیگیری">${svg('close', 16)}</button>` +
+        '</div></div>';
+    }
+    return h + '</div>';
   }
 
   function renderAbout() {
@@ -3049,6 +3439,34 @@
     .pn .notice ul { margin: 8px 0; padding: 0 18px 0 0; }
     .pn .notice li { padding: 3px 0; }
     .pn .notice a, .pn .note a { color: var(--p); }
+    .pn .wl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .pn .wl-sum { display: flex; flex-direction: column; flex: 1; }
+    .pn .wl-sum small { color: var(--n500); font-size: 11px; }
+    .pn .wl-prog { display: inline-flex; align-items: center; gap: 8px; color: var(--n600); }
+    .pn .wl-prog .cspin { width: 14px; height: 14px; }
+    .pn .wl-alerts { margin: 0; padding: 0; list-style: none; }
+    .pn .wl-alerts li { padding: 4px 0; border-bottom: 1px dashed var(--n100); }
+    .pn .wl-alerts li.new span { font-weight: 700; }
+    .pn .wl-alerts small { display: block; color: var(--n500); font-size: 10px; }
+    .pn .wl-alerts a, .pn .wl-main a, .pn .msg a { color: var(--p); text-decoration: none; }
+    .pn .msg.col { flex-direction: column; text-align: center; }
+    .pn .wl-list { display: flex; flex-direction: column; }
+    .pn .wl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-bottom: 1px solid var(--n100); }
+    .pn .wl-row img, .pn .wl-row .ph { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; background: var(--n100); flex: none; }
+    .pn .wl-main { flex: 1; min-width: 180px; display: flex; flex-direction: column; }
+    .pn .wl-main a { color: var(--n700); font-weight: 700; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .pn .wl-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+    .pn .wl-meta s { color: var(--n500); font-size: 11px; }
+    .pn .wl-meta small { color: var(--n500); font-size: 10px; }
+    .pn .wl-meta .err { color: var(--p); }
+    .pn .oos { color: var(--n500); }
+    .pn .wl-target { display: flex; flex-direction: column; }
+    .pn .wl-target small { color: var(--n500); font-size: 10px; }
+    .pn .wl-target input { width: 110px; height: 30px; padding: 0 8px; border: 1px solid var(--n200); border-radius: 8px; background: var(--bg); color: inherit; }
+    .pn .wl-acts { display: flex; gap: 4px; }
+    .pn .wl-acts .btn.sm { height: 30px; padding: 0 10px; }
+    .pn .wl-acts .btn.ghost { width: 30px; padding: 0; }
+    .pn .dash { color: var(--n500); }
     .pn select { height: 32px; padding: 0 10px; border: 1px solid var(--n200); border-radius: 8px; background: var(--bg); color: inherit; }
   `;
 
@@ -3072,7 +3490,10 @@
     const body = wrap.querySelector('.pn-body');
     let current = null;
 
-    const render = () => { body.innerHTML = current === 'about' ? renderAbout() : renderSettings(); };
+    const render = () => {
+      body.innerHTML = current === 'about' ? renderAbout() : current === 'watch' ? renderWatch() : renderSettings();
+      if (current === 'watch') markAlertsSeen();
+    };
     const select = (key) => {
       current = PANEL_TABS.some((t) => t.key === key) ? key : PANEL_TABS[0].key;
       wrap.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === current)));
@@ -3081,11 +3502,15 @@
     // another tab changed the settings: show the new values (unless the user is typing in a field here)
     const onChange = () => { if (current === 'settings' && !body.contains(root.activeElement)) render(); };
     settingsListeners.push(onChange);
+    // watchlist changes (prices, run progress) refresh the watchlist tab
+    const onWl = () => { if (current === 'watch' && !body.contains(root.activeElement)) render(); };
+    wlListeners.push(onWl);
 
     const close = () => {
       wrap.remove();
       document.removeEventListener('keydown', onKey, true);
       settingsListeners.splice(settingsListeners.indexOf(onChange), 1);
+      wlListeners.splice(wlListeners.indexOf(onWl), 1);
       panelUi = null;
     };
     const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -3100,6 +3525,15 @@
       const act = b.dataset.act;
       if (act === 'close') close();
       else if (act === 'reload') location.reload();
+      else if (act === 'wlcheck') startRun(true);
+      else if (act === 'wlstop') stopRun();
+      else if (act === 'wlone') { b.disabled = true; checkWatched(b.dataset.id, true).then(render); }
+      else if (act === 'wldel') wlRemove(b.dataset.id);
+      else if (act === 'clearalerts') { store.del(ALERTS_KEY); syncMenuBadge(); render(); }
+      else if (act === 'wlchart') {
+        const w = wlAll()[b.dataset.id];
+        if (w) openChartDialog(b.dataset.id, w.last, w.t);
+      }
       else if (act === 'export') exportData();
       else if (act === 'import') body.querySelector('[data-file]').click();
       else if (act === 'delhist') {
@@ -3123,6 +3557,10 @@
         body.querySelector('[data-reload]').hidden = (t.value === 'en') === (LOCALE === 'en-US');
       } else if (t.matches('[data-freq]')) {
         updateSettings((s) => { s.history.freq = t.value; });
+      } else if (t.dataset.alert) {
+        updateSettings((s) => { s.alerts[t.dataset.alert] = t.checked; });
+      } else if (t.dataset.target) {
+        wlSetTarget(t.dataset.target, t.value);
       } else if (t.matches('[data-usd]')) {
         setManualRate(t.value);
         t.value = manualRate() || '';
@@ -3242,6 +3680,7 @@
     const logout = document.querySelector('[class*="MiniProfileMenu"] li[data-cro-id="header-logout"]');
     if (!logout) return;
     let item = document.getElementById(MENU_ITEM_ID);
+    if (item) syncMenuBadge(item);
     if (item && item.nextElementSibling === logout) return;
     if (!item) {
       const model = logout.previousElementSibling;
@@ -3252,10 +3691,23 @@
         '<a class="flex items-center text-neutral-700 w-full" href="#">' +
         `<div class="w-12 pr-1 pl-5">${svg('gear', 20)}</div>` +
         '<div class="flex-1 flex justify-between py-2 items-center grow border-complete-b">' +
-        '<span class="text-subtitle-strong" dir="ltr" style="direction:ltr;unicode-bidi:isolate">MAH Digikala Ext.</span></div></a>';
-      item.querySelector('a').addEventListener('click', (e) => { e.preventDefault(); showPanel('settings'); });
+        '<span class="text-subtitle-strong" dir="ltr" style="direction:ltr;unicode-bidi:isolate">MAH Digikala Ext.</span>' +
+        '<span data-badge hidden style="min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--color-primary-700,#ef394e);' +
+        'color:#fff;font-size:11px;line-height:20px;text-align:center;font-weight:700"></span></div></a>';
+      item.querySelector('a').addEventListener('click', (e) => { e.preventDefault(); showPanel('watch'); });
+      syncMenuBadge(item);
     }
     logout.insertAdjacentElement('beforebegin', item);
+  }
+  // the number of unseen watchlist alerts, on the profile-menu entry
+  function syncMenuBadge(item) {
+    const host = item || document.getElementById(MENU_ITEM_ID);
+    const el = host && host.querySelector('[data-badge]');
+    if (!el) return;
+    const n = historyOn() ? unseenAlerts() : 0;
+    el.hidden = !n;
+    el.textContent = n ? L(n) : '';
+    el.title = n ? L(n) + ' هشدار تازه‌ی قیمت' : '';
   }
 
   // Header buttons, in DOM order: [table button | price comparison] [theme button] [bell].
@@ -3264,6 +3716,7 @@
   function ensureButtons() {
     ensureMenuItem();
     ensureProductPage();
+    ensureFavoritesBar();
     const wantTable = feature('table') && !!pageType();
     const wantCmp = feature('compare') && !!productId() && cmpTabs().length > 0;
     let tableBtn = document.getElementById(BTN_ID);
@@ -3322,6 +3775,9 @@
     ensureButtons();
     window.addEventListener('load', () => setTimeout(ensureButtons, 500));
     setTimeout(pruneHistory, 15000);
+    // scheduled watchlist checks (and resuming a run another tab left unfinished)
+    setTimeout(schedTick, 5000);
+    setInterval(schedTick, 60e3);
   }
 
   // Runs at document-start so the theme is applied before the page paints.

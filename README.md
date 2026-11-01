@@ -7,6 +7,7 @@ A userscript that adds a few handy tools to [Digikala](https://www.digikala.com)
 - **Table view for product listings.** On the Incredible Offers page and on category pages, a new header button opens every item in one full-page table that you can sort, group and filter, and export to CSV.
 - **Dark mode.** A light / dark / system theme switch next to the notification bell, on every Digikala page (including the login and account pages).
 - **Price comparison.** On product pages, a button that looks the product up on Torob, Emalls and BaSalam, and on Amazon and eBay with prices converted to Toman.
+- **Watchlist and price alerts.** Follow products and get an alert when their price drops, reaches your target, or they're back in stock.
 - **Price history and discount check.** The script keeps its own record of prices in your browser, shows them on a chart alongside Digikala's own price chart, and compares a discounted price with the prices of the 30 days before the discount.
 
 The script runs in your browser only. It has no server of its own and collects nothing. Like Digikala itself, its interface is in Persian; button names below are given in English for reference.
@@ -72,6 +73,16 @@ In the table, a **discount check** column shows results for products already che
 
 How often prices are recorded is set in the settings: manually, on each visit, or on a schedule (every 6 or 12 hours, daily, weekly). Records are kept for one year. See the [disclaimer and methodology](DISCLAIMER.md) for exactly how the check works.
 
+### Watchlist and alerts
+
+- Add a product with **☆ پیگیری قیمت** in the MAH bar on its page, or with the star next to its name in the table.
+- On Digikala's [favourites page](https://www.digikala.com/profile/favorites/), **Add all to watchlist** copies all your favourites at once. Press it again later to add new ones.
+- Open the list from the **MAH Digikala Ext.** entry in your profile menu. For each product it shows the latest price, a 3-month trend line, a target price you can set, a chart button and a check button.
+- When recording is set to a schedule (every 6 or 12 hours, daily or weekly), the whole list is checked automatically while a Digikala tab is open, one product at a time. **Check now** works in every mode.
+- Alerts: a price drop, reaching your target price, and back in stock. They appear as a message on the page and as a count on the menu entry, and optionally as desktop notifications.
+
+Checks and alerts only happen while a Digikala tab is open. If you don't visit Digikala for a few days, there will be a gap.
+
 ### Settings
 
 Open the settings panel from either place:
@@ -83,6 +94,7 @@ In the panel you can:
 
 - turn each feature (table, theme, price comparison, price history) on or off
 - choose how often prices are recorded, or delete all price records
+- choose which watchlist alerts you get, and whether they also appear as desktop notifications
 - choose which shops the price comparison searches
 - set your own dollar rate
 - switch between Persian and Latin digits

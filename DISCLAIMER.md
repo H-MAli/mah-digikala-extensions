@@ -47,6 +47,7 @@ This section describes exactly how the script produces each piece of information
 - It sends requests only while the user has a Digikala tab open, and only for pages the user opens or products the user has added to the watchlist.
 - Watchlist checks run one product at a time, about 1.5 seconds apart, at the frequency the user chose (default: once a day).
 - The table view loads list pages the same way Digikala's own infinite scroll does, when the user opens the table or asks for more items.
+- When the user presses **Add all to watchlist** on Digikala's favourites page, the script reads the user's favourites list from Digikala, page by page, in the user's own logged-in browser tab. Nothing about the list leaves the browser.
 - In the table, **Check discounts** fetches the price history of at most 100 products per press, one at a time, about 1.5 seconds apart. Results are kept for one day.
 
 ### 4.3 Discount check
@@ -72,7 +73,7 @@ This follows the approach many consumer-protection rules use for sale prices (fo
 
 ### 4.4 Price-drop and back-in-stock alerts
 
-- An alert compares the newest price the script recorded for a watchlist product with the price recorded before it.
+- An alert compares the newest price the script recorded for a watchlist product with the price recorded before it: a **price drop** when it is lower, **back in stock** when the product was unavailable before and is available now.
 - A target price set by the user is compared with the newest recorded price.
 - Alerts can be late or missed if the browser was closed or a check failed.
 
