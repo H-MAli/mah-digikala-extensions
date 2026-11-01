@@ -51,14 +51,16 @@ Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page,
 
 ### Quick filters
 
-On the same listing pages, a **Quick filters** box sits at the top of Digikala's filter sidebar. Pick filters as usual (a price range, "available only", fast delivery, a sort order and so on), give them a name and press **Save current filters**. From then on, one click applies that template on any listing page, in any category. For example, save "15 to 25 million" once and use it wherever you browse.
+On the same listing pages, a **Quick filters** box sits inside Digikala's filter panel, at the top of its own scrolling list, so it stays at hand while you browse the products and scrolls out of the way with Digikala's filters. Pick filters as usual (a price range, "available only", fast delivery, a sort order and so on), give them a name and press **Save current filters**. From then on, one click applies that template on any listing page, in any category. For example, save "15 to 25 million" once and use it wherever you browse.
 
 - Clicking the template that's already in use takes its filters off again.
 - Filters that only exist in one category (the category's own attributes) are applied only in the category where you saved the template. Everything else carries over.
 - Saving under an existing name replaces that template, and **×** removes one.
 - The search text you typed is kept when you apply a template.
 
-Below it, a **Display filters** box has a **Show discounted only** switch. It hides the cards without a discount on the page itself, so nothing changes in the page address or in Digikala's result count. It works on the products already loaded. In Digikala's newer scrolling feed, which lays products out in fixed rows, they're dimmed rather than hidden so the rows don't break up; hovering one shows it in full. If none of them has a discount, a note at the top of the list says so and has a button to clear the display filters; scrolling down may load more products. The switch is remembered and applies on every listing page until you turn it off.
+Below it, a **Display filters** box has a **Show discounted only** switch and a **Rating** range slider (0 to 5 by default). When both are set, a product has to match both; a product without a rating doesn't match a rating range. They hide the products that don't match on the page itself, so nothing changes in the page address or in Digikala's result count. They work on the products already loaded. In Digikala's newer scrolling feed, which lays products out in fixed rows, those products are dimmed rather than hidden so the rows don't break up; resting the pointer on one for a moment shows it in full. If none of the loaded products match, a note at the top of the list says so and has a button to clear the display filters; scrolling down may load more products. The display filters are remembered and apply on every listing page until you clear them.
+
+On every page of the site, a round button in the bottom-right corner takes you back to the top once you've scrolled down.
 
 ### Theme
 

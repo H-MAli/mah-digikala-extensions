@@ -175,6 +175,15 @@
   /* ------------------------------------------------------------------ *
    * Card parsing (used for the fallback and for cards the API lacks)
    * ------------------------------------------------------------------ */
+  // the rating: a numeric <p> directly followed by the (custom-element) star icon
+  function cardScore(art) {
+    for (const p of art.querySelectorAll('p')) {
+      const nx = p.nextElementSibling;
+      if (/^\d+(\.\d+)?$/.test(latin(p.textContent)) && nx && nx.tagName.includes('-')) return num(p.textContent);
+    }
+    return null;
+  }
+
   function parseCard(a) {
     const art = a.querySelector('article');
     if (!art) return null; // skeleton / not a product card
@@ -186,15 +195,7 @@
     // grid cards use <h2>, carousel/list cards use <h3>
     const title = ((art.querySelector('h2, h3, h4') || {}).textContent || '').trim();
 
-    // score: a numeric <p> directly followed by the (custom-element) star icon
-    let score = null;
-    for (const p of art.querySelectorAll('p')) {
-      const nx = p.nextElementSibling;
-      if (/^\d+(\.\d+)?$/.test(latin(p.textContent)) && nx && nx.tagName.includes('-')) {
-        score = num(p.textContent);
-        break;
-      }
-    }
+    const score = cardScore(art);
 
     // off percentage pill
     let pct = null;
@@ -1620,11 +1621,37 @@
   // templates saved or removed in another tab
   store.watch(QF_KEY, () => { const h = document.getElementById(QF_ID); if (h) renderQuickFilters(h); });
 
+  // Digikala's filter box stays in view while the products scroll and scrolls its own content: our boxes go at the
+  // top of that scrolling area, so they scroll out of the way like its own filters and take none of its height.
+  // Found as the outermost element in the sidebar that scrolls vertically; else the sticky panel; else the sidebar.
+  let qfPanelEl = null;
+  function qfPanel(side) {
+    if (qfPanelEl && qfPanelEl.isConnected && side.contains(qfPanelEl)) return qfPanelEl;
+    qfPanelEl = null;
+    let sticky = null;
+    let level = [...side.children];
+    let seen = 0;
+    for (let depth = 0; depth < 7 && level.length && seen < 400; depth++) {
+      const next = [];
+      for (const el of level) {
+        if (el.id === QF_ID || el.id === DF_ID) continue;
+        seen++;
+        const cs = getComputedStyle(el);
+        if (/auto|scroll/.test(cs.overflowY)) return (qfPanelEl = el);
+        if (!sticky && cs.position === 'sticky') sticky = el;
+        next.push(...el.children);
+      }
+      level = next;
+    }
+    return sticky || side;
+  }
+
   function ensureQuickFilters() {
     let host = document.getElementById(QF_ID);
-    const side = feature('quick') && pageType() && location.hostname === 'www.digikala.com' &&
+    const sidebar = feature('quick') && pageType() && location.hostname === 'www.digikala.com' &&
       document.querySelector('[class*="__ProductList__sidebar"]');
-    if (!side) { if (host) host.remove(); return; }
+    if (!sidebar) { if (host) host.remove(); return; }
+    const side = qfPanel(sidebar);
     if (!host) {
       host = document.createElement('div');
       host.id = QF_ID;
@@ -1658,72 +1685,134 @@
    * listing page itself. Nothing is sent to Digikala, so its result count and
    * its own "nothing found" page don't know about them, and only the cards
    * already loaded are filtered: when none is left, a note in the product list
-   * says why and offers to clear them. Stored under "df" as { off: true }
-   * (off: only products with a discount).
+   * says why and offers to clear them. Stored under "df" as
+   *   { off: true, rmin, rmax }   (off: only products with a discount; rmin / rmax: rating range, null = 0 / 5).
+   * All set filters must match; a product without a rating fails a rating range.
    * ------------------------------------------------------------------ */
   const DF_ID = 'mah-dk-df';
   const DF_EMPTY_ID = 'mah-dk-df-empty';
   const DF_KEY = 'df';
-  const DF_ATTR = 'data-mah-df-off'; // set on <html> while "only discounted" is in effect
+  const DF_ATTR = 'data-mah-df'; // set on <html> while a display filter is in effect
+  const DF_OUT = 'data-mah-df-out'; // set on each card the display filters leave out
   const DF_STYLE_ID = 'mah-dk-df-style';
   const DF_ITEM = '[class*="__ProductList__item"]';
   // Digikala's virtualised feed lays cards out in fixed rows: a hidden card would leave a hole in its row,
-  // so there they are dimmed instead (full colour on hover)
+  // so there they are dimmed instead (full colour on hover, after a short pause)
   const DF_VFEED = '.product-list-virtual-feed';
-  const dfAll = () => Object.assign({ off: false }, store.get(DF_KEY));
+  const dfAll = () => Object.assign({ off: false, rmin: null, rmax: null }, store.get(DF_KEY));
+  const dfActive = (d) => !!(d.off || d.rmin != null || d.rmax != null);
+  const DF_NONE = { off: false, rmin: null, rmax: null };
   function dfSet(v) {
-    store.set(DF_KEY, v);
+    store.set(DF_KEY, Object.assign(dfAll(), v));
     ensureDisplayFilters();
   }
   store.watch(DF_KEY, () => ensureDisplayFilters());
+  // a typed rating, kept within 0-5; the ends of the scale mean "no limit"
+  function dfRating(v, key) {
+    const n = num(v);
+    if (n == null) return null;
+    const c = Math.min(5, Math.max(0, n));
+    return key === 'rmin' ? (c > 0 ? c : null) : (c < 5 ? c : null);
+  }
 
   // DK's own switches: grey outline when off, filled when on
   const DF_CSS = `
     .qf { --on: var(--color-secondary-500, #19bfd3); }
     .tg { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 0; border: 0; background: none; cursor: pointer;
       font: inherit; color: inherit; text-align: start; }
-    .tg span { flex: 1; display: flex; flex-direction: column; font-size: 13px; font-weight: 700; line-height: 2; }
-    .tg small { font-size: 11px; font-weight: 400; line-height: 1.7; color: var(--n500); }
+    .tg span, .rg > span { flex: 1; display: flex; flex-direction: column; font-size: 13px; font-weight: 700; line-height: 2; }
+    .tg small, .rg small { font-size: 11px; font-weight: 400; line-height: 1.7; color: var(--n500); }
     .sw { flex: none; position: relative; width: 38px; height: 22px; border: 2px solid var(--n400); border-radius: 999px;
       transition: background .15s, border-color .15s; }
     .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%;
       background: var(--n400); transition: left .15s; }
     .tg[aria-checked="true"] .sw { background: var(--on); border-color: var(--on); }
     .tg[aria-checked="true"] .sw::after { left: 19px; background: #fff; }
+    /* rating range: two overlapping range inputs (only their thumbs take the pointer), like DK's price range */
+    .rg { padding: 8px 0; border-top: 1px solid var(--n100); }
+    .rg > span { display: flex; flex-direction: column; font-size: 13px; font-weight: 700; line-height: 2; }
+    .rv { display: flex; gap: 16px; margin: 4px 0 2px; color: var(--n500); }
+    .rv b { font-size: 15px; color: var(--n700); margin-inline-start: 6px; }
+    .rv b.on { color: var(--on); }
+    .rs { position: relative; height: 28px; }
+    .rs .bar, .rs .fill { position: absolute; top: 12px; height: 4px; border-radius: 2px; }
+    .rs .bar { left: 10px; right: 10px; background: var(--n200); }
+    .rs .fill { background: var(--on); }
+    .rs input { position: absolute; inset: 0; width: 100%; height: 28px; margin: 0; padding: 0; background: none; direction: rtl;
+      pointer-events: none; -webkit-appearance: none; appearance: none; outline: none; }
+    .rs input::-webkit-slider-runnable-track { height: 28px; background: none; }
+    .rs input::-moz-range-track { background: none; }
+    .rs input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; box-sizing: border-box; width: 20px; height: 20px;
+      margin-top: 4px; border-radius: 50%; border: 3px solid var(--bg); background: var(--on); box-shadow: 0 0 0 1px var(--on); cursor: pointer; }
+    .rs input::-moz-range-thumb { pointer-events: auto; box-sizing: border-box; width: 20px; height: 20px; border-radius: 50%;
+      border: 3px solid var(--bg); background: var(--on); box-shadow: 0 0 0 1px var(--on); cursor: pointer; }
+    .rs input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--n400); }
+    .ticks { display: flex; justify-content: space-between; padding: 0 10px; color: var(--n500); font-size: 11px; line-height: 1.6; }
+    .ticks span { width: 0; display: flex; flex-direction: column; align-items: center; }
+    .ticks span::before { content: ""; width: 1px; height: 5px; background: var(--n400); margin-bottom: 1px; }
     .link { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--p); font: inherit; font-weight: 700; cursor: pointer; }
     .empty { padding: 24px 16px; text-align: center; }
     .empty b { display: block; font-size: 14px; }
     .empty .note { margin: 6px 0 12px; }
   `;
 
-  // The list's product cards (not the loading placeholders): those on show, and those the display filters let through.
-  function dfCount() {
+  // Marks the list's product cards (not the loading placeholders) the filters leave out, and counts them
+  // (sponsored cards hidden by the setting are not counted).
+  function dfApply(d) {
+    const on = dfActive(d);
+    const rated = d.rmin != null || d.rmax != null;
     const ads = settings().hideAds;
     const items = [...document.querySelectorAll(DF_ITEM)].filter((el) => el.querySelector('article'));
-    const shown = items.filter((el) => !(ads && el.querySelector('dds-icon[name="badge-ad"]')));
-    return {
-      items,
-      total: shown.length,
-      pass: shown.filter((el) => el.querySelector('.line-through')).length,
-      virtual: items.length > 0 && !!items[0].closest(DF_VFEED),
-    };
+    let total = 0;
+    let pass = 0;
+    for (const el of items) {
+      const art = el.querySelector('article');
+      let ok = true;
+      if (on && d.off && !art.querySelector('.line-through')) ok = false;
+      if (on && ok && rated) {
+        const s = cardScore(art);
+        ok = s != null && (d.rmin == null || s >= d.rmin) && (d.rmax == null || s <= d.rmax);
+      }
+      if (el.hasAttribute(DF_OUT) === ok) el.toggleAttribute(DF_OUT, !ok);
+      if (ads && el.querySelector('dds-icon[name="badge-ad"]')) continue;
+      total++;
+      if (ok) pass++;
+    }
+    return { items, total, pass, virtual: items.length > 0 && !!items[0].closest(DF_VFEED) };
   }
 
-  function renderDisplayFilters(host, on, c) {
-    const hidden = c.total - c.pass;
-    let h = '<div class="qh"><b>فیلترهای نمایش</b><span class="tag">MAH</span></div>' +
-      `<button class="tg" type="button" role="switch" aria-checked="${on}" data-act="off">` +
-      '<span>فقط نمایش تخفیف‌دارها<small>کالاهای بدون تخفیف در همین صفحه پنهان می‌شوند</small></span><i class="sw"></i></button>';
-    if (on && c.virtual) {
-      h += '<p class="note">' + (hidden ? L(hidden) + ' کالا از ' + L(c.total) + ' کالای بارگذاری‌شده کم‌رنگ شده است. ' : '') +
-        'در این نوع فهرست، دیجی‌کالا کالاها را در ردیف‌های ثابت می‌چیند؛ برای اینکه چیدمان به هم نریزد، کالاهای بدون تخفیف به‌جای پنهان شدن کم‌رنگ می‌شوند.</p>' +
-        '<button class="link" type="button" data-act="clear">پاک کردن فیلترهای نمایش</button>';
-    } else if (on) {
-      h += '<p class="note">' + (hidden ? L(hidden) + ' کالا از ' + L(c.total) + ' کالای بارگذاری‌شده پنهان شده است. ' : '') +
-        'این فیلتر فقط کالاهایی را که در همین صفحه بارگذاری شده‌اند پنهان می‌کند و در تعداد نتایج دیجی‌کالا حساب نمی‌شود.</p>' +
-        '<button class="link" type="button" data-act="clear">پاک کردن فیلترهای نمایش</button>';
+  // The slider's coloured stretch and the "from / to" figures, from the thumbs' current positions
+  // (right to left: the low end is on the right, as on the page).
+  function dfSlider(root) {
+    const [a, b] = [...root.querySelectorAll('[data-r]')].map((x) => parseFloat(x.value));
+    const fill = root.querySelector('.fill');
+    fill.style.right = 'calc(10px + (100% - 20px) * ' + a / 5 + ')';
+    fill.style.left = 'calc(10px + (100% - 20px) * ' + (1 - b / 5) + ')';
+    const show = { rmin: a, rmax: b };
+    for (const v of root.querySelectorAll('[data-v]')) {
+      v.textContent = L(show[v.dataset.v]);
+      v.classList.toggle('on', dfRating(String(show[v.dataset.v]), v.dataset.v) != null);
     }
-    host.shadowRoot.querySelector('.qf').innerHTML = h;
+  }
+
+  // The parts of the box that change with the page: the controls are built once so a drag is never interrupted.
+  function renderDisplayFilters(host, d, c) {
+    const root = host.shadowRoot;
+    root.querySelector('[data-act="off"]').setAttribute('aria-checked', String(!!d.off));
+    for (const inp of root.querySelectorAll('[data-r]')) {
+      if (root.activeElement !== inp) inp.value = String(d[inp.dataset.r] != null ? d[inp.dataset.r] : inp.dataset.r === 'rmin' ? 0 : 5);
+    }
+    dfSlider(root);
+    let h = '';
+    if (dfActive(d)) {
+      const hidden = c.total - c.pass;
+      h = '<p class="note">' + (hidden ? L(hidden) + ' کالا از ' + L(c.total) + ' کالای بارگذاری‌شده ' + (c.virtual ? 'کم‌رنگ' : 'پنهان') + ' شده است. ' : '') +
+        (c.virtual
+          ? 'در این نوع فهرست، دیجی‌کالا کالاها را در ردیف‌های ثابت می‌چیند؛ برای اینکه چیدمان به هم نریزد، کالاهای کنارگذاشته‌شده به‌جای پنهان شدن کم‌رنگ می‌شوند.'
+          : 'این فیلترها فقط کالاهایی را که در همین صفحه بارگذاری شده‌اند پنهان می‌کنند و در تعداد نتایج دیجی‌کالا حساب نمی‌شوند.') +
+        '</p><button class="link" type="button" data-act="clear">پاک کردن فیلترهای نمایش</button>';
+    }
+    root.querySelector('.dyn').innerHTML = h;
   }
 
   // The note in the product list when the display filters hide every card loaded so far.
@@ -1742,7 +1831,7 @@
         '<p class="note">هیچ‌یک از کالاهای بارگذاری‌شده‌ی این صفحه با «فیلترهای نمایش» افزونه‌ی MAH جور نیست. ' +
         'ممکن است با پایین رفتن در صفحه، کالاهای بیشتری بارگذاری شود.</p>' +
         '<div class="qs" style="justify-content:center"><button type="button" data-act="clear">پاک کردن فیلترهای نمایش</button></div></div>';
-      root.addEventListener('click', (e) => { if (e.target.closest('[data-act="clear"]')) dfSet({ off: false }); });
+      root.addEventListener('click', (e) => { if (e.target.closest('[data-act="clear"]')) dfSet(DF_NONE); });
     }
     el.setAttribute(THEME_ATTR, currentMode());
     if (grid.firstElementChild !== el) grid.prepend(el);
@@ -1763,31 +1852,106 @@
       const st = document.createElement('style');
       st.id = DF_STYLE_ID;
       const H = 'html[' + DF_ATTR + '] ';
-      const NO = DF_ITEM + ':has(article):not(:has(.line-through))';
-      st.textContent = H + NO + ':not(' + DF_VFEED + ' *){display:none!important}' +
-        H + DF_VFEED + ' ' + NO + '{opacity:.3;filter:grayscale(1);transition:opacity .15s,filter .15s}' +
-        H + DF_VFEED + ' ' + NO + ':hover{opacity:1;filter:none}';
+      const DK = 'html[' + DF_ATTR + '][' + THEME_ATTR + '="dark"] ';
+      const OUT = DF_ITEM + '[' + DF_OUT + ']';
+      st.textContent = H + OUT + ':not(' + DF_VFEED + ' *){display:none!important}' +
+        H + DF_VFEED + ' ' + OUT + '{opacity:.3;filter:grayscale(1);transition:opacity .2s,filter .2s}' +
+        H + DF_VFEED + ' ' + OUT + ':hover{opacity:1;filter:none;transition-delay:.35s}' +
+        // dark theme: fading and greying the whole card would turn its navy background flat grey, so the contents are
+        // greyed and a veil in the card colour goes over them instead
+        DK + DF_VFEED + ' ' + OUT + '{opacity:1;filter:none;position:relative}' +
+        DK + DF_VFEED + ' ' + OUT + '>*{filter:grayscale(1);transition:filter .2s}' +
+        DK + DF_VFEED + ' ' + OUT + '::after{content:"";position:absolute;inset:0;z-index:10;pointer-events:none;' +
+        'background:var(--color-neutral-000);opacity:.7;transition:opacity .2s}' +
+        DK + DF_VFEED + ' ' + OUT + ':hover>*{filter:none;transition-delay:.35s}' +
+        DK + DF_VFEED + ' ' + OUT + ':hover::after{opacity:0;transition-delay:.35s}';
       html.appendChild(st);
     }
-    const on = !!dfAll().off;
+    const d = dfAll();
+    const on = dfActive(d);
     if (html.hasAttribute(DF_ATTR) !== on) html.toggleAttribute(DF_ATTR, on);
     if (!host) {
       host = document.createElement('div');
       host.id = DF_ID;
       host.style.setProperty('margin-bottom', '16px', 'important');
       const root = host.attachShadow({ mode: 'open' });
-      root.innerHTML = `<style>${QF_CSS}${DF_CSS}</style><div class="qf"></div>`;
+      root.innerHTML = `<style>${QF_CSS}${DF_CSS}</style><div class="qf">` +
+        '<div class="qh"><b>فیلترهای نمایش</b><span class="tag">MAH</span></div>' +
+        '<button class="tg" type="button" role="switch" aria-checked="false" data-act="off">' +
+        '<span>فقط نمایش تخفیف‌دارها<small>کالاهای بدون تخفیف در همین صفحه کنار گذاشته می‌شوند</small></span><i class="sw"></i></button>' +
+        '<div class="rg"><span>امتیاز کالا<small>کالاهای بدون امتیاز هم کنار گذاشته می‌شوند</small></span>' +
+        '<div class="rv"><span>از<b data-v="rmin"></b></span><span>تا<b data-v="rmax"></b></span></div>' +
+        '<div class="rs"><i class="bar"></i><i class="fill"></i>' +
+        '<input type="range" min="0" max="5" step="0.1" value="0" data-r="rmin" aria-label="کمترین امتیاز">' +
+        '<input type="range" min="0" max="5" step="0.1" value="5" data-r="rmax" aria-label="بیشترین امتیاز"></div>' +
+        `<div class="ticks">${[0, 1, 2, 3, 4, 5].map((n) => `<span>${L(n)}</span>`).join('')}</div></div>` +
+        '<div class="dyn"></div></div>';
       root.addEventListener('click', (e) => {
         const b = e.target.closest('[data-act]');
-        if (b) dfSet({ off: b.dataset.act === 'off' ? !dfAll().off : false });
+        if (b && b.dataset.act === 'off') dfSet({ off: !dfAll().off });
+        else if (b && b.dataset.act === 'clear') dfSet(DF_NONE);
+      });
+      // while dragging: the thumbs can't pass each other, the figures follow, and the cards update shortly after
+      let dragging;
+      const apply = (inp) => dfSet({ [inp.dataset.r]: dfRating(inp.value, inp.dataset.r) });
+      root.addEventListener('input', (e) => {
+        const inp = e.target.closest('[data-r]');
+        if (!inp) return;
+        const [lo, hi] = root.querySelectorAll('[data-r]');
+        if (parseFloat(lo.value) > parseFloat(hi.value)) inp.value = inp === lo ? hi.value : lo.value;
+        dfSlider(root);
+        clearTimeout(dragging);
+        dragging = setTimeout(() => apply(inp), 150);
+      });
+      root.addEventListener('change', (e) => {
+        const inp = e.target.closest('[data-r]');
+        if (!inp) return;
+        clearTimeout(dragging);
+        apply(inp);
       });
     }
     host.setAttribute(THEME_ATTR, currentMode());
     if (qf.nextElementSibling !== host) qf.after(host);
-    const c = dfCount();
-    const sig = on + '|' + c.total + '|' + c.pass + '|' + c.virtual;
-    if (host.dataset.s !== sig) { renderDisplayFilters(host, on, c); host.dataset.s = sig; }
+    const c = dfApply(d);
+    const sig = JSON.stringify(d) + '|' + c.total + '|' + c.pass + '|' + c.virtual;
+    if (host.dataset.s !== sig) { renderDisplayFilters(host, d, c); host.dataset.s = sig; }
     ensureDfEmpty(on && !c.virtual && c.total > 0 && c.pass === 0, c.items);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Back to top: a round button in the corner once the page is scrolled down
+   * ------------------------------------------------------------------ */
+  const TOP_ID = 'mah-dk-top';
+  const TOP_CSS = `
+    :host { all: initial; display: block; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .2s, transform .2s; }
+    :host([data-on]) { opacity: 1; pointer-events: auto; transform: none; }
+    button { --bg: #fff; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; cursor: pointer; border-radius: 50%;
+      border: 1px solid var(--color-neutral-200, #e0e0e2); background: var(--bg); color: var(--color-neutral-700, #3f4064);
+      box-shadow: 0 4px 16px rgba(0,0,0,.16); transition: background .15s; }
+    button:hover { background: var(--color-neutral-100, #f0f0f1); }
+    :host([data-mah-theme="dark"]) button { --bg: var(--color-neutral-000, #222732); }
+  `;
+  let topListening = false;
+  const syncBackToTop = () => {
+    const h = document.getElementById(TOP_ID);
+    if (h && h.hasAttribute('data-on') !== window.scrollY > 600) h.toggleAttribute('data-on', window.scrollY > 600);
+  };
+  function ensureBackToTop() {
+    let host = document.getElementById(TOP_ID);
+    if (location.hostname !== 'www.digikala.com' || !document.body) { if (host) host.remove(); return; }
+    if (!host) {
+      host = document.createElement('div');
+      host.id = TOP_ID;
+      // inline, so no page rule can move it
+      host.style.cssText = 'position:fixed!important;right:16px!important;bottom:16px!important;z-index:2147482000!important';
+      const root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${TOP_CSS}</style><button type="button" title="بازگشت به بالای صفحه" aria-label="بازگشت به بالای صفحه">${svg('up', 22)}</button>`;
+      root.querySelector('button').addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    }
+    if (!topListening) { topListening = true; window.addEventListener('scroll', syncBackToTop, { passive: true }); }
+    host.setAttribute(THEME_ATTR, currentMode());
+    if (host.parentElement !== document.body) document.body.appendChild(host);
+    syncBackToTop();
   }
 
   /* ------------------------------------------------------------------ *
@@ -2013,7 +2177,7 @@
     applyVTheme();
 
     // our shadow hosts (table and dialogs, product-page strip, chart section) follow the page
-    for (const hid of [HOST_ID, STRIP_ID, MODAL_SEC_ID, QF_ID, DF_ID, DF_EMPTY_ID]) {
+    for (const hid of [HOST_ID, STRIP_ID, MODAL_SEC_ID, QF_ID, DF_ID, DF_EMPTY_ID, TOP_ID]) {
       const host = document.getElementById(hid);
       if (host && host.getAttribute(THEME_ATTR) !== mode) host.setAttribute(THEME_ATTR, mode);
     }
@@ -3896,7 +4060,7 @@
     { key: 'table', label: 'جدول کالاها', hint: 'دکمه‌ی «جدول کالاها» در شگفت‌انگیزها و صفحه‌های دسته‌بندی، جستجو، برند و فروشنده' },
     { key: 'theme', label: 'حالت نمایش', hint: 'دکمه‌ی روشن / تاریک / سیستم کنار زنگ اعلان؛ اگر خاموش باشد سایت روشن نمایش داده می‌شود' },
     { key: 'compare', label: 'مقایسه‌ی قیمت', hint: 'دکمه‌ی «مقایسه قیمت» در صفحه‌ی کالا' },
-    { key: 'quick', label: 'فیلترهای سریع', hint: 'ذخیره‌ی فیلترهای کنار صفحه‌های فهرست کالا به‌صورت قالب و اعمال آن‌ها با یک کلیک در هر دسته، و «فیلترهای نمایش» مانند فقط نمایش تخفیف‌دارها' },
+    { key: 'quick', label: 'فیلترهای سریع', hint: 'ذخیره‌ی فیلترهای کنار صفحه‌های فهرست کالا به‌صورت قالب و اعمال آن‌ها با یک کلیک در هر دسته، و «فیلترهای نمایش» (فقط تخفیف‌دارها، محدوده‌ی امتیاز)' },
     { key: 'history', label: 'سابقه‌ی قیمت و بررسی تخفیف', hint: 'ثبت قیمت‌ها در همین مرورگر، نمودار قیمت و بررسی تخفیف در صفحه‌ی کالا و جدول' },
   ];
   const FREQ_OPTIONS = [
@@ -4396,6 +4560,7 @@
     ensureFavoritesBar();
     ensureQuickFilters();
     ensureDisplayFilters();
+    ensureBackToTop();
     const wantTable = feature('table') && !!pageType();
     const wantCmp = feature('compare') && !!productId() && cmpTabs().length > 0;
     let tableBtn = document.getElementById(BTN_ID);
