@@ -81,8 +81,8 @@
     history: { freq: 'daily' },
     // watchlist alerts: price drop, back in stock, and whether to show them as desktop notifications too
     alerts: { drop: true, stock: true, desktop: false },
-    // column picker: { key: true | false } over each column's default; side: the column panel next to the table is open
-    table: { cols: {}, side: true },
+    // column picker: { key: true | false } over each column's default
+    table: { cols: {} },
     hideAds: false, // hide the products Digikala itself marks as sponsored ("سفارشی"), on its pages and in the table
   };
   // Saved values over the defaults, one level deep, so settings added in later versions get their default.
@@ -312,6 +312,8 @@
     const N = '(\\d+(?:\\.\\d+)?)';
     const END = '(?![a-z\\u0600-\\u06ff])';
     s = s.replace(new RegExp(N + '\\s*(?:میلی\\s*گرم|mg)' + END, 'g'), ' ');
+    // mobile network generations ("4G", "5G") are not grams
+    s = s.replace(new RegExp('(^|[^\\d.])[2-6]\\s*g' + END, 'g'), '$1 ');
     const find = (unit) => { const m = s.match(new RegExp(N + '\\s*(?:' + unit + ')' + END)); return m ? parseFloat(m[1]) : null; };
     let kg = find('کیلو\\s*گرمی?|کیلویی|کیلو|kg');
     if (kg == null) { const g = find('گرمی?|gr|g'); if (g != null) kg = g / 1000; }
@@ -330,10 +332,10 @@
     if (count > 1) return { u: 'pc', q: count };
     return null;
   }
-  // -> { v: Tomans per unit, u } or null
+  // -> { v: whole Tomans per unit, u } or null
   function unitPrice(title, price) {
     const sz = price > 0 ? parseSize(title) : null;
-    return sz && sz.q > 0 ? { v: price / sz.q, u: sz.u } : null;
+    return sz && sz.q > 0 ? { v: Math.round(price / sz.q), u: sz.u } : null;
   }
 
   /* ------------------------------------------------------------------ *
@@ -606,7 +608,7 @@
     .filters .btn { height: 36px; padding: 0 12px; color: var(--p); }
     .rngs { display: contents; }
     .tg { display: inline-flex; align-items: center; gap: 6px; color: var(--n600); cursor: pointer; }
-    .tg input, .side input { width: 15px; height: 15px; margin: 0; accent-color: var(--p); flex: none; }
+    .tg input, .colsp input { width: 15px; height: 15px; margin: 0; accent-color: var(--p); flex: none; }
     .colpick { position: relative; }
     .cp { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 5; min-width: 220px; padding: 8px 12px;
       background: var(--bg); border: 1px solid var(--n200); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14);
@@ -614,17 +616,17 @@
     .cp[hidden] { display: none; }
     .btn[aria-pressed="true"] { border-color: var(--n300); background: var(--n100); }
 
-    /* table and the column panel beside it */
     .main { flex: 1; min-height: 0; display: flex; }
-    .side { flex: none; width: 240px; overflow: auto; padding: 12px 16px 24px; border-inline-start: 1px solid var(--n200); }
-    .side-h { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
-    .side-h b { flex: 1; font-size: 13px; }
-    .side .link { border: 0; background: none; color: var(--p); font-weight: 700; cursor: pointer; padding: 0 4px; }
-    .side label { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; cursor: pointer; }
-    .side label input { margin-top: 4px; }
-    .side label span { display: flex; flex-direction: column; }
-    .side label small { color: var(--n500); font-size: 11px; line-height: 1.6; }
-    .side .vnote { margin-top: 10px; }
+    /* column picker: drop-down under the "columns" button */
+    .colsp { width: 300px; max-height: min(70vh, 560px); overflow: auto; }
+    .colsp-h { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+    .colsp-h b { flex: 1; font-size: 13px; }
+    .colsp .link { border: 0; background: none; color: var(--p); font-weight: 700; cursor: pointer; padding: 0 4px; }
+    .colsp label { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; cursor: pointer; }
+    .colsp label input { margin-top: 4px; }
+    .colsp label span { display: flex; flex-direction: column; }
+    .colsp label small { color: var(--n500); font-size: 11px; line-height: 1.6; }
+    .colsp .vnote { margin-top: 8px; }
     .vw { min-width: 280px; max-width: 340px; }
     .vrow { display: flex; align-items: center; gap: 2px; }
     .vrow .vname { flex: 1; min-width: 0; text-align: start; border: 0; background: none; padding: 6px 4px; border-radius: 6px;
@@ -646,9 +648,11 @@
     .low { color: #b26a00; font-weight: 700; }
     .jet { display: inline-block; padding: 0 8px; border-radius: 6px; background: var(--n100); font-weight: 700; line-height: 22px; }
 
-    /* scroll container is LTR so the scrollbar stays on the right, like the site */
-    .scroll { flex: 1; min-width: 0; overflow: auto; padding: 0 var(--pad) 40px; direction: ltr; }
-    table { width: 100%; border-collapse: separate; border-spacing: 0; direction: rtl; }
+    /* scroll container is LTR so the scrollbar stays on the right, like the site. The table is centred within the page
+       width like the bars above it, but may grow into the side margins when its columns need more room: it only
+       scrolls sideways when the window itself is too narrow. */
+    .scroll { flex: 1; min-width: 0; overflow: auto; padding: 0 20px 40px; direction: ltr; }
+    table { width: 100%; max-width: 1440px; margin: 0 auto; border-collapse: separate; border-spacing: 0; direction: rtl; }
     th:nth-child(1), td.idx { width: 56px; }
     th:nth-child(n+3) { min-width: 110px; }
     th { position: sticky; top: 0; z-index: 2; background: var(--bg); color: var(--n500); font-weight: 700;
@@ -868,7 +872,6 @@
       return side === 'min' ? 'از ' + f(b.lo) : 'تا ' + f(b.hi);
     };
 
-    const sideOn = settings().table.side !== false;
     const wrap = document.createElement('div');
     wrap.className = 'modal';
     wrap.setAttribute('dir', 'rtl');
@@ -902,7 +905,19 @@
           <button class="btn" type="button" data-act="views" aria-expanded="false" title="ذخیره و بازکردن مرتب‌سازی، گروه‌بندی، فیلترها و ستون‌ها">نماها${svg('chevron', 16)}</button>
           <div class="cp vw" hidden></div>
         </div>
-        <button class="btn" type="button" data-act="cols" aria-pressed="${sideOn}" title="نمایش یا پنهان کردن فهرست ستون‌ها کنار جدول">ستون‌ها</button>
+        <div class="colpick">
+          <button class="btn" type="button" data-act="cols" aria-expanded="false" title="انتخاب ستون‌های جدول">ستون‌ها${svg('chevron', 16)}</button>
+          <div class="cp colsp" hidden>
+            <div class="colsp-h"><b>ستون‌ها</b>
+              <button class="link" type="button" data-act="colsall">همه</button>
+              <button class="link" type="button" data-act="colsdef">پیش‌فرض</button>
+            </div>
+            ${allCols.filter((c) => c.opt).map((c) =>
+              `<label><input type="checkbox" data-col="${c.key}"${colOn(c) ? ' checked' : ''}>` +
+              `<span>${esc(c.label)}${c.hint ? `<small>${esc(c.hint)}</small>` : ''}</span></label>`).join('')}
+            <p class="vnote">انتخاب ستون‌ها به خاطر سپرده می‌شود و در خروجی CSV هم اعمال می‌شود.</p>
+          </div>
+        </div>
       </div>
       <div class="filters">
         <div class="rngs"></div>
@@ -916,16 +931,6 @@
             <tbody></tbody>
           </table>
         </div>
-        <aside class="side"${sideOn ? '' : ' hidden'} aria-label="ستون‌ها">
-          <div class="side-h"><b>ستون‌ها</b>
-            <button class="link" type="button" data-act="colsall">همه</button>
-            <button class="link" type="button" data-act="colsdef">پیش‌فرض</button>
-          </div>
-          ${allCols.filter((c) => c.opt).map((c) =>
-            `<label><input type="checkbox" data-col="${c.key}"${colOn(c) ? ' checked' : ''}>` +
-            `<span>${esc(c.label)}${c.hint ? `<small>${esc(c.hint)}</small>` : ''}</span></label>`).join('')}
-          <p class="vnote">انتخاب ستون‌ها به خاطر سپرده می‌شود و در خروجی CSV هم اعمال می‌شود.</p>
-        </aside>
       </div>
       <div class="more">
         <span class="mspin" data-spin hidden></span>
@@ -939,6 +944,9 @@
 
     const $ = (s) => wrap.querySelector(s);
     const tbody = $('tbody');
+    // The scroll container is LTR, so a table wider than the window would open on its far (left) end:
+    // bring its start, the product names, into view.
+    const toStart = () => { const sc = $('.scroll'); sc.scrollLeft = sc.scrollWidth; };
 
     // (Re)builds the header and the range filters for the visible columns, keeping typed filter values.
     function applyCols() {
@@ -1343,25 +1351,19 @@
         return;
       }
       const act = e.target.closest('[data-act]');
-      // a click outside an open drop-down (views) closes it
+      // a click outside an open drop-down (views, columns) closes it
       wrap.querySelectorAll('.colpick').forEach((pk) => {
         const p = pk.querySelector('.cp');
         if (!p.hidden && !pk.contains(e.target)) { p.hidden = true; pk.querySelector('[aria-expanded]').setAttribute('aria-expanded', 'false'); }
       });
       if (!act) return;
       switch (act.dataset.act) {
-        case 'views': {
+        case 'views':
+        case 'cols': {
           const p = act.parentElement.querySelector('.cp');
           p.hidden = !p.hidden;
           act.setAttribute('aria-expanded', String(!p.hidden));
-          if (!p.hidden) renderViews();
-          break;
-        }
-        case 'cols': {
-          const side = $('.side');
-          side.hidden = !side.hidden;
-          act.setAttribute('aria-pressed', String(!side.hidden));
-          updateSettings((s) => { s.table.side = !side.hidden; });
+          if (!p.hidden && act.dataset.act === 'views') renderViews();
           break;
         }
         case 'colsall':
@@ -1372,11 +1374,12 @@
           });
           applyCols();
           render();
+          toStart();
           break;
         case 'vapply': {
           const v = viewsAll().list.find((x) => x.id === act.dataset.id);
           closePicker('views');
-          if (v) applyView(v);
+          if (v) { applyView(v); toStart(); }
           break;
         }
         case 'vdef': {
@@ -1447,6 +1450,7 @@
         updateSettings((s) => { s.table.cols[t.dataset.col] = t.checked; });
         applyCols();
         render();
+        toStart();
       } else if (t.dataset.tg) {
         st.t[t.dataset.tg] = t.checked;
         st.collapsed.clear();
@@ -1471,6 +1475,7 @@
     const dv = V.list.find((v) => v.id === V.def);
     if (dv) applyView(dv);
     else render();
+    toStart();
     syncMoreUi();
   }
 

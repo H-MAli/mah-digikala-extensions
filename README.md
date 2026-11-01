@@ -38,7 +38,7 @@ Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page,
 - Click a column header to sort by it.
 - Group items by rating, discount percent, price range or discount amount.
 - Combine several filters to narrow the list, including the quick filters **low stock only**, **Digikala delivery only** and **Jet only**.
-- The panel next to the table lists every column; tick the ones you want to see, or use **All** / **Default**. The **Columns** button shows or hides the panel. Your choice is remembered. Besides the price columns there are:
+- The **Columns** button opens a list of every column; tick the ones you want to see, or use **All** / **Default**. Your choice is remembered. Besides the price columns there are:
   - **lowest price last month**: Digikala's own figure for the product's lowest price in the past month, as it reports it in its list data
   - **unit price**: per kilogram, litre or item, worked out from the size in the product's title. Sorting compares kilograms with kilograms and litres with litres.
   - **seller** and **seller rating**
