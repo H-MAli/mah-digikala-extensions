@@ -58,6 +58,8 @@ On the same listing pages, a **Quick filters** box sits at the top of Digikala's
 - Saving under an existing name replaces that template, and **×** removes one.
 - The search text you typed is kept when you apply a template.
 
+Below it, a **Display filters** box has a **Show discounted only** switch. It hides the cards without a discount on the page itself, so nothing changes in the page address or in Digikala's result count. It works on the products already loaded. In Digikala's newer scrolling feed, which lays products out in fixed rows, they're dimmed rather than hidden so the rows don't break up; hovering one shows it in full. If none of them has a discount, a note at the top of the list says so and has a button to clear the display filters; scrolling down may load more products. The switch is remembered and applies on every listing page until you turn it off.
+
 ### Theme
 
 Click the sun / moon / monitor button next to the bell to cycle through **Light**, **Dark** and **System** (follows your operating system). Your choice is remembered.
