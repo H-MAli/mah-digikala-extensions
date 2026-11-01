@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.11.0
+// @version      1.11.1
 // @author       Mohammad Ali Haghshenas
 // @license      PolyForm-Noncommercial-1.0.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -1652,6 +1652,11 @@
       D + ' [class*="__searchResultItem"] [class*="__titleHighlight"]{color:var(--color-neutral-600)!important}',
       D + ' [class*="__searchResultItem"] [class*="__subtitle"]{color:#5fb4ee!important}',
       D + ' [class*="__searchResultItem"] [class*="__image"]{mix-blend-mode:normal!important}',
+      // "early access" (Digikala Plus) badge on product cards: a pale pink pill with an inline dark title colour,
+      // an undefined border colour (border-plus-400) and a bright white "glass shine" sweep
+      D + ' [class*="__earlyAccess"]{background-color:#3a2340!important;border-color:rgba(231,156,224,.45)!important;box-shadow:none!important}',
+      D + ' [class*="__earlyAccess"] > .grow{color:#f3b8ee!important}',
+      D + ' [class*="__earlyAccess"]::before{opacity:.18}',
       // Digikala Plus modal: selected plan (hard-coded #fffaff)
       D + ' [class*="plan--selected"]{background-color:var(--color-plus-50)!important}',
       // accounts.digikala.com: provider variables (inline) and the "fixed white" card background
