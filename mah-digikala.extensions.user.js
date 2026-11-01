@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.9.0
+// @version      1.9.1
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -1445,6 +1445,13 @@
       D + ' [class*="SearchInputDesktop"]:not([class*="isOpen"]):hover{background-color:var(--color-neutral-200)!important}',
       D + ' [class*="shortcutBox"]{background-color:var(--color-neutral-300)!important;color:var(--color-neutral-900)}',
       D + ' [class*="fallbackSearchItem"]:hover,' + D + ' [class*="searchResultItem"]:hover{background-color:rgba(255,255,255,.06)}',
+      // search suggestions: hard-coded near-black text, light grey dividers, a dark-blue category hint,
+      // and thumbnails blended with "darken" (made for a white list)
+      D + ' [class*="__searchResultItem"] [class*="__contentSection"]{border-bottom-color:var(--color-neutral-200)!important}',
+      D + ' [class*="__searchResultItem"] [class*="__title"]:not([class*="__titleHighlight"]),' + D + ' [class*="__fallbackSearchItemTitle"]{color:var(--color-neutral-900)!important}',
+      D + ' [class*="__searchResultItem"] [class*="__titleHighlight"]{color:var(--color-neutral-600)!important}',
+      D + ' [class*="__searchResultItem"] [class*="__subtitle"]{color:#5fb4ee!important}',
+      D + ' [class*="__searchResultItem"] [class*="__image"]{mix-blend-mode:normal!important}',
       // Digikala Plus modal: selected plan (hard-coded #fffaff)
       D + ' [class*="plan--selected"]{background-color:var(--color-plus-50)!important}',
       // accounts.digikala.com: provider variables (inline) and the "fixed white" card background
