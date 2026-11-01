@@ -1684,7 +1684,7 @@
           const off = b.closest('.qrow').classList.contains('on');
           if (t.df !== undefined) dfSet(off ? DF_NONE : t.df || DF_NONE);
           const url = off ? qfUrl(null) : qfUrl(t);
-          if (url !== location.pathname + location.search) location.assign(url);
+          if (url !== location.pathname + location.search) { dfHandOver(); location.assign(url); }
         }
       });
       root.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-name]')) qfSave(host); });
@@ -1700,13 +1700,14 @@
    * listing page itself. Nothing is sent to Digikala, so its result count and
    * its own "nothing found" page don't know about them, and only the cards
    * already loaded are filtered: when none is left, a note in the product list
-   * says why and offers to clear them. Stored under "df" as
+   * says why and offers to clear them. Kept in memory only, so they last until
+   * the page is reloaded (they stay on while the site moves between listings itself):
    *   { off: true, rmin, rmax }   (off: only products with a discount; rmin / rmax: rating range, null = 0 / 5).
    * All set filters must match; a product without a rating fails a rating range.
    * ------------------------------------------------------------------ */
   const DF_ID = 'mah-dk-df';
   const DF_EMPTY_ID = 'mah-dk-df-empty';
-  const DF_KEY = 'df';
+  const DF_NEXT = 'mah-dk-df-next'; // sessionStorage: display filters handed over to the page a template opens
   const DF_ATTR = 'data-mah-df'; // set on <html> while a display filter is in effect
   const DF_OUT = 'data-mah-df-out'; // set on each card the display filters leave out
   const DF_STYLE_ID = 'mah-dk-df-style';
@@ -1714,15 +1715,24 @@
   // Digikala's virtualised feed lays cards out in fixed rows: a hidden card would leave a hole in its row,
   // so there they are dimmed instead (full colour on hover, after a short pause)
   const DF_VFEED = '.product-list-virtual-feed';
-  const dfAll = () => Object.assign({ off: false, rmin: null, rmax: null }, store.get(DF_KEY));
-  const dfActive = (d) => !!(d.off || d.rmin != null || d.rmax != null);
   const DF_NONE = { off: false, rmin: null, rmax: null };
+  let dfState = DF_NONE;
+  try {
+    const next = sessionStorage.getItem(DF_NEXT);
+    if (next) { sessionStorage.removeItem(DF_NEXT); dfState = Object.assign({}, DF_NONE, JSON.parse(next)); }
+  } catch (e) { /* storage unavailable */ }
+  store.del('df'); // earlier versions saved them for good
+  const dfAll = () => Object.assign({}, dfState);
+  const dfActive = (d) => !!(d.off || d.rmin != null || d.rmax != null);
   function dfSet(v) {
-    store.set(DF_KEY, Object.assign(dfAll(), v));
+    dfState = Object.assign(dfAll(), v);
     ensureQuickFilters();
     ensureDisplayFilters();
   }
-  store.watch(DF_KEY, () => { ensureQuickFilters(); ensureDisplayFilters(); });
+  // before a full page load: the next page starts with the current display filters
+  function dfHandOver() {
+    try { sessionStorage.setItem(DF_NEXT, JSON.stringify(dfState)); } catch (e) { /* storage unavailable */ }
+  }
   // a typed rating, kept within 0-5; the ends of the scale mean "no limit"
   function dfRating(v, key) {
     const n = num(v);
@@ -4056,7 +4066,7 @@
     return `<svg class="spark" viewBox="0 0 100 24" width="100" height="24" aria-hidden="true"><path d="${d}" fill="none" stroke="#f57c00" stroke-width="1.6"/></svg>`;
   }
 
-  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { ensureDisplayFilters, ensureQuickFilters, qfUrl, qfSummary, qfParams, discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
+  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { ensureDisplayFilters, dfAll, ensureQuickFilters, qfUrl, qfSummary, qfParams, discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
 
   /* ------------------------------------------------------------------ *
    * Panel: settings and about. Opened from the entry in the profile menu
