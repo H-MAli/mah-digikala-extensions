@@ -1859,10 +1859,11 @@
         H + DF_VFEED + ' ' + OUT + ':hover{opacity:1;filter:none;transition-delay:.35s}' +
         // dark theme: fading and greying the whole card would turn its navy background flat grey, so the contents are
         // greyed and a veil in the card colour goes over them instead
-        DK + DF_VFEED + ' ' + OUT + '{opacity:1;filter:none;position:relative}' +
+        DK + DF_VFEED + ' ' + OUT + '{opacity:.75;filter:none;position:relative;transition:opacity .2s}' +
         DK + DF_VFEED + ' ' + OUT + '>*{filter:grayscale(1);transition:filter .2s}' +
         DK + DF_VFEED + ' ' + OUT + '::after{content:"";position:absolute;inset:0;z-index:10;pointer-events:none;' +
         'background:var(--color-neutral-000);opacity:.7;transition:opacity .2s}' +
+        DK + DF_VFEED + ' ' + OUT + ':hover{opacity:1;filter:none;transition-delay:.35s}' +
         DK + DF_VFEED + ' ' + OUT + ':hover>*{filter:none;transition-delay:.35s}' +
         DK + DF_VFEED + ' ' + OUT + ':hover::after{opacity:0;transition-delay:.35s}';
       html.appendChild(st);
