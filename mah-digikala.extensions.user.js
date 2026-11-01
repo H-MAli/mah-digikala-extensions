@@ -2,9 +2,10 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.5.7
+// @version      1.5.9
 // @author       Mohammad Ali Haghshenas
-// @license      MIT
+// @license      Apache-2.0
+// @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
 // @homepageURL  https://github.com/H-MAli/mah-digikala-extensions
 // @supportURL   https://github.com/H-MAli/mah-digikala-extensions/issues
 // @updateURL    https://raw.githubusercontent.com/H-MAli/mah-digikala-extensions/main/mah-digikala.extensions.user.js
@@ -1130,6 +1131,9 @@
       D + ' [class*="__Marketable"],' + D + ' [class*="MiniBuyBox"]{background-color:' + n0 + '!important}',
       D + ' [class*="InfoSection__buybox"]{background-image:none!important}',
       D + ' .bg-neutral-100[class*="MiniBuyBox"],' + D + ' [class*="SellerListItemDesktop__sellerListItem"]{background-color:var(--color-neutral-100)!important}',
+      // dark tooltips (e.g. on "price chart"): white text on neutral-700, which the dark palette turns light grey.
+      // Remapping the variables also recolours the border and the arrow; the white-background variant is fine as is.
+      D + ' [class*="__Tooltip__tooltip"]:not([class*="--whiteBg"]){--color-neutral-700:#424650;--color-neutral-800:#646770}',
       // FAQ pages: header gradient and the contact box
       D + ' [class*="FqaHeaderLayout__wrapper"]{background-image:linear-gradient(var(--color-neutral-200),rgba(var(--color-neutral-000-rgb),0))!important}',
       D + ' main > .container-xl-w > .rounded-medium.border-complete{background-color:rgba(var(--color-neutral-100-rgb),.6)!important}',
@@ -1805,6 +1809,14 @@
   }
   const tabStatus = (s, key) => (key === 'foreign' ? foreignStatus(s) : (s.tabs[key] || {}).status || 'loading');
 
+  // Results come from automatic searches by product name, so they can belong to a different product.
+  const CMP_WARN =
+    '<b>توجه:</b> نتیجه‌ها با جستجوی خودکار نام کالا پیدا می‌شوند و گاهی مربوط به کالای دیگری (مدل، رنگ یا ظرفیت متفاوت) هستند. ' +
+    'پیش از تصمیم‌گیری، کالا و قیمت را در خود سایت بررسی کنید.';
+  const FOREIGN_WARN =
+    '<b>توجه:</b> در فروشگاه‌های خارجی احتمال نمایش کالای نامرتبط بیشتر است؛ نام، مدل و قیمت را حتماً در سایت فروشگاه بررسی کنید. ' +
+    'قیمت‌های تومانی تقریبی‌اند و هزینه‌ی ارسال، گمرک و مالیات را در بر نمی‌گیرند.';
+
   const SPIN = '<span class="cspin"></span>';
   const money = (amount, cur) => amount.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + cur;
 
@@ -1843,7 +1855,8 @@
   function renderForeign(s) {
     const rate = usdToman(s);
     const manual = manualRate();
-    let h = `<div class="fq"><input type="text" dir="ltr" data-fq placeholder="نام لاتین کالا، مثلاً: Anker Soundcore R50i A3949" value="${esc(s.fq || '')}">` +
+    let h = `<div class="cmp-warn in" role="note">${FOREIGN_WARN}</div>` +
+      `<div class="fq"><input type="text" dir="ltr" data-fq placeholder="نام لاتین کالا، مثلاً: Anker Soundcore R50i A3949" value="${esc(s.fq || '')}">` +
       `<button class="btn sm pri" type="button" data-act="fsearch">جستجو</button></div>`;
     h += `<div class="fq rate"><label>نرخ هر دلار (تومان)` +
       `<input type="number" min="0" data-rate placeholder="${rate ? Math.round(rate) : '—'}" value="${manual || ''}"></label>` +
@@ -1914,6 +1927,9 @@
     .cmp-tabs button { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px; border: 0; background: none;
       border-bottom: 2px solid transparent; color: var(--n600); font-weight: 700; cursor: pointer; white-space: nowrap; }
     .cmp-tabs button[aria-selected="true"] { color: var(--p); border-bottom-color: var(--p); }
+    .cmp-warn { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--n200); background: rgba(249,168,37,.14);
+      color: var(--n700); font-size: 11px; line-height: 1.9; }
+    .cmp-warn.in { margin-bottom: 10px; border: 1px solid rgba(249,168,37,.45); border-radius: 10px; padding: 8px 12px; }
     .cmp-body { padding: 16px; overflow: auto; flex: 1; min-height: 220px; }
     .mk { font-style: normal; font-size: 11px; width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center;
       background: var(--n200); color: var(--n700); }
@@ -1972,7 +1988,7 @@
       `<div class="cmp-prod" data-prod><span>در حال بررسی کالا…</span></div>` +
       `<div class="cmp-tabs" role="tablist">` +
       CMP_TABS.map((t, i) => `<button type="button" role="tab" data-tab="${t.key}" aria-selected="${i === 0}">${logoImg(t.logo)}<span>${t.label}</span><span class="mk-slot"></span></button>`).join('') +
-      `</div><div class="cmp-body">` +
+      `</div><div class="cmp-warn" role="note">${CMP_WARN}</div><div class="cmp-body">` +
       CMP_TABS.map((t, i) => `<div data-pane="${t.key}" role="tabpanel"${i ? ' hidden' : ''}><div class="msg">${SPIN}<span>در حال آماده‌سازی…</span></div></div>`).join('') +
       `</div></div>`;
     root.appendChild(wrap);
