@@ -111,7 +111,7 @@ Results can be incomplete or wrong, for example because:
 
 ## 6. Privacy
 
-- Everything the script stores is kept **only in the user's own browser**, in the userscript manager's storage. That includes settings, the watchlist, price records and saved views.
+- Everything the script stores is kept **only in the user's own browser**, in the userscript manager's storage. That includes settings, the watchlist, price records, saved views and filter templates.
 - Nothing is sent to the author or to any server run by the author. The script has no analytics or tracking.
 - The only network requests it makes are the ones described in section 4.
 

@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.11.1
+// @version      1.12.0
 // @author       Mohammad Ali Haghshenas
 // @license      PolyForm-Noncommercial-1.0.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -74,7 +74,7 @@
   const SETTINGS_KEY = 'settings';
   const DEFAULT_SETTINGS = {
     digits: 'fa', // 'fa' = Persian digits (like the site), 'en' = Latin digits
-    features: { table: true, theme: true, compare: true, history: true },
+    features: { table: true, theme: true, compare: true, history: true, quick: true },
     shops: { torob: true, emalls: true, basalam: true, foreign: true }, // price-comparison tabs
     // how prices are recorded: 'manual' (button on the product page only), 'visit' (when a product page is opened),
     // or a schedule ('6h' | '12h' | 'daily' | 'weekly') for the watchlist on top of 'visit'
@@ -1496,6 +1496,164 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Quick filters: the filters picked in a listing's sidebar live in the page
+   * address, so they can be saved as named templates and applied on any other
+   * listing page with one click. Stored under "qf" as
+   *   [{ id, name, path, params: [[key, value]] }]   (path: where it was saved).
+   * ------------------------------------------------------------------ */
+  const QF_ID = 'mah-dk-qf';
+  const QF_KEY = 'qf';
+  const qfAll = () => { const v = store.get(QF_KEY); return Array.isArray(v) ? v : []; };
+  // not filters: the search text, the page number, tracking tags
+  const qfSkip = (k) => k === 'q' || k === 'page' || /^utm_/.test(k);
+  // filters that only mean something in the category they were picked in
+  const qfLocal = (k) => /^(attributes|categories)\[/.test(k);
+  const qfParams = (search) => [...new URLSearchParams(search)].filter(([k]) => !qfSkip(k));
+  const qfSig = (params) => params.map(([k, v]) => k + '=' + v).sort().join('&');
+  // the parameters a template sets on the current page (category-specific ones only where it was saved)
+  const qfFor = (t) => t.params.filter(([k]) => t.path === location.pathname || !qfLocal(k));
+
+  const QF_SORT = { 1: 'جدیدترین', 4: 'پربازدیدترین', 7: 'پرفروش‌ترین', 20: 'ارزان‌ترین', 21: 'گران‌ترین', 22: 'مرتبط‌ترین', 25: 'سریع‌ترین ارسال', 27: 'پیشنهاد خریداران', 29: 'منتخب' };
+  const QF_LABEL = {
+    has_selling_stock: 'فقط کالاهای موجود', has_ready_to_shipment: 'موجود در انبار دیجی‌کالا',
+    has_jet_shipment_by_seller_or_digikala: 'ارسال سریع', has_ship_by_seller: 'ارسال فروشنده', only_fresh: 'فقط سوپرمارکتی',
+    has_offline_shop_stock: 'خرید حضوری', seller_types: 'نوع فروشنده', brands: 'برند', color_palettes: 'رنگ',
+    attributes: 'ویژگی‌ها', categories: 'دسته‌بندی',
+  };
+  // A readable list of what the filters do. Prices in the address are in Rials.
+  function qfSummary(params) {
+    const out = [];
+    const counts = {};
+    let min = null;
+    let max = null;
+    for (const [k, v] of params) {
+      if (k === 'price[min]') min = num(v);
+      else if (k === 'price[max]') max = num(v);
+      else if (k === 'sort') out.push('مرتب‌سازی: ' + (QF_SORT[v] || v));
+      else { const b = k.split('[')[0]; counts[b] = (counts[b] || 0) + 1; }
+    }
+    if (min || max) out.unshift('قیمت ' + (min ? 'از ' + fmt(min / 10) + ' ' : '') + (max ? 'تا ' + fmt(max / 10) + ' ' : '') + 'تومان');
+    for (const b of Object.keys(counts)) out.push((QF_LABEL[b] || b) + (counts[b] > 1 ? ' (' + L(counts[b]) + ')' : ''));
+    return out;
+  }
+
+  // The page address with a template's filters in place of the current ones (null: no filters at all).
+  function qfUrl(t) {
+    const next = new URLSearchParams();
+    for (const [k, v] of new URLSearchParams(location.search)) if (k === 'q') next.append(k, v);
+    if (t) for (const [k, v] of qfFor(t)) next.append(k, v);
+    const qs = next.toString();
+    return location.pathname + (qs ? '?' + qs : '');
+  }
+
+  const QF_CSS = `
+    :host { all: initial; display: block; margin: 0 0 12px; }
+    * { box-sizing: border-box; }
+    .qf { --p: var(--color-primary-700, #ef394e); --bg: #fff; --tint: #fff5f6;
+      --n700: var(--color-neutral-700, #3f4064); --n500: var(--color-neutral-500, #81858b); --n400: var(--color-neutral-400, #a1a3a8);
+      --n200: var(--color-neutral-200, #e0e0e2); --n100: var(--color-neutral-100, #f0f0f1);
+      background: var(--bg); border: 1px solid var(--n200); border-radius: 8px; padding: 12px 16px;
+      font-family: Digikala, Tahoma, "Segoe UI", sans-serif; font-size: 12px; line-height: 1.8; color: var(--n700); direction: rtl; }
+    :host([data-mah-theme="dark"]) .qf { --bg: var(--color-neutral-000, #222732); --tint: #3a1f2a; }
+    .qh { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .qh b { flex: 1; font-size: 14px; }
+    .tag { font-size: 10px; font-weight: 700; color: var(--n500); border: 1px solid var(--n200); border-radius: 4px; padding: 0 4px; line-height: 16px; }
+    .qrow { display: flex; align-items: stretch; margin: 6px 0; border: 1px solid var(--n200); border-radius: 8px; }
+    .qrow.on { border-color: var(--p); background: var(--tint); }
+    .qn { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 6px 10px; border: 0; background: none; cursor: pointer;
+      text-align: start; font: inherit; font-weight: 700; color: var(--n700); }
+    .qn small { font-weight: 400; font-size: 11px; color: var(--n500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .x { flex: none; width: 32px; border: 0; background: none; color: var(--n400); font-size: 16px; cursor: pointer; }
+    .x:hover { color: var(--p); }
+    .qs { display: flex; gap: 6px; margin-top: 10px; }
+    .qs input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--n200); border-radius: 8px;
+      background: var(--bg); color: inherit; font: inherit; outline: none; }
+    .qs input:focus { border-color: var(--n400); }
+    .qs button { height: 32px; padding: 0 12px; border: 1px solid var(--p); border-radius: 8px; background: var(--p); color: #fff;
+      font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .note { margin: 6px 0 0; color: var(--n500); font-size: 11px; line-height: 1.7; }
+  `;
+
+  function renderQuickFilters(host) {
+    const cur = qfParams(location.search);
+    const curSig = qfSig(cur);
+    const list = qfAll();
+    const sum = qfSummary(cur);
+    let h = '<div class="qh"><b>فیلترهای سریع</b><span class="tag">MAH</span></div>';
+    if (list.length) {
+      for (const t of list) {
+        const ps = qfFor(t);
+        const on = ps.length > 0 && qfSig(ps) === curSig;
+        const dropped = ps.length < t.params.length;
+        const info = qfSummary(ps).join('، ') + (dropped ? ' (ویژگی‌های مخصوص دسته‌ی دیگر اعمال نمی‌شوند)' : '');
+        h += `<div class="qrow${on ? ' on' : ''}"><button class="qn" type="button" data-act="apply" data-id="${esc(t.id)}" ` +
+          `title="${esc(info + (on ? ' · برای برداشتن فیلترها دوباره کلیک کنید' : ''))}">${esc(t.name)}<small>${esc(info || '—')}</small></button>` +
+          `<button class="x" type="button" data-act="del" data-id="${esc(t.id)}" title="حذف این قالب">×</button></div>`;
+      }
+    } else {
+      h += '<p class="note">فیلترهای دلخواه (مثلاً محدوده‌ی قیمت) را از بخش «فیلترها» انتخاب کنید و اینجا به‌صورت قالب ذخیره کنید تا در هر دسته‌ای با یک کلیک اعمال شوند.</p>';
+    }
+    if (cur.length) {
+      h += `<div class="qs"><input type="text" data-name maxlength="40" placeholder="${esc(sum[0] || 'نام قالب')}">` +
+        '<button type="button" data-act="save">ذخیره‌ی فیلترهای فعلی</button></div>' +
+        `<p class="note">فیلترهای فعلی: ${esc(sum.join('، '))}</p>`;
+    } else if (list.length) {
+      h += '<p class="note">برای ساختن قالب تازه، ابتدا فیلترها را انتخاب کنید.</p>';
+    }
+    host.shadowRoot.querySelector('.qf').innerHTML = h;
+    host.dataset.s = location.search;
+  }
+
+  function qfSave(host) {
+    const cur = qfParams(location.search);
+    if (!cur.length) return;
+    const inp = host.shadowRoot.querySelector('[data-name]');
+    const name = (String(inp.value || '').trim() || qfSummary(cur)[0] || 'قالب').slice(0, 40);
+    const list = qfAll();
+    const i = list.findIndex((t) => t.name === name);
+    const t = { id: i === -1 ? Date.now().toString(36) : list[i].id, name, path: location.pathname, params: cur };
+    if (i === -1) list.push(t); else list[i] = t;
+    store.set(QF_KEY, list);
+    renderQuickFilters(host);
+  }
+
+  // templates saved or removed in another tab
+  store.watch(QF_KEY, () => { const h = document.getElementById(QF_ID); if (h) renderQuickFilters(h); });
+
+  function ensureQuickFilters() {
+    let host = document.getElementById(QF_ID);
+    const side = feature('quick') && pageType() && location.hostname === 'www.digikala.com' &&
+      document.querySelector('[class*="__ProductList__sidebar"]');
+    if (!side) { if (host) host.remove(); return; }
+    if (!host) {
+      host = document.createElement('div');
+      host.id = QF_ID;
+      // inline: the page's own rules for the sidebar's children win over :host
+      host.style.setProperty('margin-bottom', '16px', 'important');
+      const root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${QF_CSS}</style><div class="qf"></div>`;
+      root.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-act]');
+        if (!b) return;
+        const t = qfAll().find((x) => x.id === b.dataset.id);
+        if (b.dataset.act === 'save') qfSave(host);
+        else if (b.dataset.act === 'del') {
+          store.set(QF_KEY, qfAll().filter((x) => x.id !== b.dataset.id));
+          renderQuickFilters(host);
+        } else if (b.dataset.act === 'apply' && t) {
+          // a click on the template already in use takes its filters off again
+          location.assign(b.closest('.qrow').classList.contains('on') ? qfUrl(null) : qfUrl(t));
+        }
+      });
+      root.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-name]')) qfSave(host); });
+    }
+    host.setAttribute(THEME_ATTR, currentMode());
+    if (side.firstElementChild !== host) side.prepend(host);
+    // the site changes the address without reloading when a filter is picked
+    if (host.dataset.s !== location.search || !host.shadowRoot.querySelector('.qh')) renderQuickFilters(host);
+  }
+
+  /* ------------------------------------------------------------------ *
    * Theme: light / dark / system, for every page of the site
    *
    * Digikala's pages take their colours from CSS variables (--color-*) and the
@@ -1718,7 +1876,7 @@
     applyVTheme();
 
     // our shadow hosts (table and dialogs, product-page strip, chart section) follow the page
-    for (const hid of [HOST_ID, STRIP_ID, MODAL_SEC_ID]) {
+    for (const hid of [HOST_ID, STRIP_ID, MODAL_SEC_ID, QF_ID]) {
       const host = document.getElementById(hid);
       if (host && host.getAttribute(THEME_ATTR) !== mode) host.setAttribute(THEME_ATTR, mode);
     }
@@ -3580,7 +3738,7 @@
     return `<svg class="spark" viewBox="0 0 100 24" width="100" height="24" aria-hidden="true"><path d="${d}" fill="none" stroke="#f57c00" stroke-width="1.6"/></svg>`;
   }
 
-  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
+  if (window.__MAH_TEST__) Object.assign(window.__MAH_TEST__, { qfUrl, qfSummary, qfParams, discountCheck, jalaliToGregorian, dkDayKey, addObservation, mergedDays, chartSeries, drawChart, wlObserve, wlAdd, startRun, schedTick });
 
   /* ------------------------------------------------------------------ *
    * Panel: settings and about. Opened from the entry in the profile menu
@@ -3601,6 +3759,7 @@
     { key: 'table', label: 'جدول کالاها', hint: 'دکمه‌ی «جدول کالاها» در شگفت‌انگیزها و صفحه‌های دسته‌بندی، جستجو، برند و فروشنده' },
     { key: 'theme', label: 'حالت نمایش', hint: 'دکمه‌ی روشن / تاریک / سیستم کنار زنگ اعلان؛ اگر خاموش باشد سایت روشن نمایش داده می‌شود' },
     { key: 'compare', label: 'مقایسه‌ی قیمت', hint: 'دکمه‌ی «مقایسه قیمت» در صفحه‌ی کالا' },
+    { key: 'quick', label: 'فیلترهای سریع', hint: 'ذخیره‌ی فیلترهای کنار صفحه‌های فهرست کالا به‌صورت قالب و اعمال آن‌ها با یک کلیک در هر دسته' },
     { key: 'history', label: 'سابقه‌ی قیمت و بررسی تخفیف', hint: 'ثبت قیمت‌ها در همین مرورگر، نمودار قیمت و بررسی تخفیف در صفحه‌ی کالا و جدول' },
   ];
   const FREQ_OPTIONS = [
@@ -4098,6 +4257,7 @@
     ensureMenuItem();
     ensureProductPage();
     ensureFavoritesBar();
+    ensureQuickFilters();
     const wantTable = feature('table') && !!pageType();
     const wantCmp = feature('compare') && !!productId() && cmpTabs().length > 0;
     let tableBtn = document.getElementById(BTN_ID);

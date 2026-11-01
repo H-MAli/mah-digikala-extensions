@@ -49,6 +49,15 @@ Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page,
 - Items that Digikala marks as sponsored (سفارشی) carry the same label in the table. They can be hidden; see [Settings](#settings).
 - **Export CSV** saves exactly what the table currently shows, ready to open in Excel.
 
+### Quick filters
+
+On the same listing pages, a **Quick filters** box sits at the top of Digikala's filter sidebar. Pick filters as usual (a price range, "available only", fast delivery, a sort order and so on), give them a name and press **Save current filters**. From then on, one click applies that template on any listing page, in any category. For example, save "15 to 25 million" once and use it wherever you browse.
+
+- Clicking the template that's already in use takes its filters off again.
+- Filters that only exist in one category (the category's own attributes) are applied only in the category where you saved the template. Everything else carries over.
+- Saving under an existing name replaces that template, and **×** removes one.
+- The search text you typed is kept when you apply a template.
+
 ### Theme
 
 Click the sun / moon / monitor button next to the bell to cycle through **Light**, **Dark** and **System** (follows your operating system). Your choice is remembered.
@@ -101,7 +110,7 @@ Open the settings panel from either place:
 
 In the panel you can:
 
-- turn each feature (table, theme, price comparison, price history) on or off
+- turn each feature (table, quick filters, theme, price comparison, price history) on or off
 - choose how often prices are recorded, or delete all price records
 - choose which watchlist alerts you get, and whether they also appear as desktop notifications
 - choose which shops the price comparison searches
