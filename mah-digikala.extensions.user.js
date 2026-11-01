@@ -4244,6 +4244,15 @@
     const link = (url, text) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
     return '<div class="about">' +
       `<div class="name"><b>افزونه‌های MAH دیجی‌کالا</b><span class="chip" dir="ltr">v${esc(scriptVersion())}</span></div>` +
+      // a modified copy runs with the user's login: say where the real one comes from
+      '<div class="warn" role="note"><b>فقط از منبع رسمی نصب کنید</b>' +
+      '<p>یوزراسکریپت درون صفحه‌های دیجی‌کالا و با حساب کاربری شما اجرا می‌شود. نسخه‌ی دست‌کاری‌شده‌ی این اسکریپت، یا هر یوزراسکریپت دیگری از منبع ناشناس، ' +
+      'می‌تواند اطلاعات حسابتان (نام، شماره‌ی تلفن، نشانی‌ها و سفارش‌ها) را بخواند، از طرف شما کاری انجام دهد یا آن را برای دیگری بفرستد.</p><ul>' +
+      `<li>این اسکریپت را فقط از ${link(REPO_URL, 'صفحه‌ی رسمی پروژه در گیت‌هاب')} نصب کنید، نه از فایل یا پیوندی که در پیام‌رسان یا سایت دیگری برایتان فرستاده شده، و کدی را که کسی به شما داده در Tampermonkey نچسبانید.</li>` +
+      '<li>در داشبورد Tampermonkey بررسی کنید که Homepage و Update URL این اسکریپت به <span dir="ltr">github.com/H-MAli/mah-digikala-extensions</span> ' +
+      '(و فایل‌های خام آن به <span dir="ltr">raw.githubusercontent.com/H-MAli</span>) اشاره کند.</li>' +
+      '<li>این اسکریپت هرگز رمز عبور، کد یک‌بارمصرف یا اطلاعات پرداخت نمی‌خواهد و سرور جداگانه‌ای ندارد.</li>' +
+      '<li>درباره‌ی همه‌ی یوزراسکریپت‌ها و افزونه‌ها: فقط از منابع مطمئن استفاده کنید و با احتیاط پیش بروید.</li></ul></div>' +
       '<p>ساخته‌ی محمدعلی حق‌شناس. این افزونه پروژه‌ای مستقل، غیررسمی و رایگان با کد منبع آزاد برای استفاده‌ی غیرتجاری است و هیچ ارتباطی با دیجی‌کالا ندارد. ' +
       'هر آنچه نشان می‌دهد اطلاعاتی است که به‌طور خودکار و فقط برای استفاده‌ی شخصی شما تولید می‌شود؛ پیش از هر تصمیمی، آن را در خود سایت بررسی کنید.</p>' +
       '<ul class="links">' +
@@ -4295,6 +4304,13 @@
     .pn .about { padding: 14px 0; }
     .pn .about .name { display: flex; align-items: center; gap: 10px; font-size: 15px; }
     .pn .about p { margin: 12px 0; color: var(--n600); }
+    .pn .warn { margin: 12px 0; padding: 10px 14px; border: 1px solid rgba(249,168,37,.55); border-radius: 10px;
+      background: rgba(249,168,37,.12); color: var(--n700); }
+    .pn .warn b { display: block; font-size: 13px; }
+    .pn .warn p { margin: 4px 0; color: var(--n700); }
+    .pn .warn ul { margin: 4px 0 0; padding: 0 18px 0 0; }
+    .pn .warn li { padding: 2px 0; }
+    .pn .warn a { color: var(--p); font-weight: 700; }
     .pn .links { margin: 0; padding: 0 18px 0 0; }
     .pn .links li { padding: 3px 0; }
     .pn .links a { color: var(--p); text-decoration: none; font-weight: 700; }

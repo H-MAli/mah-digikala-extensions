@@ -32,6 +32,18 @@ Tampermonkey checks for new versions automatically. To check right away, open th
 
 Open the Tampermonkey dashboard and delete **MAH Digikala Extensions**.
 
+## Install only from the official source
+
+> **Warning:** a userscript runs inside the pages it's made for, with your login. A modified copy of this script, or any other userscript from an unknown source, could read what you see on Digikala (your name, phone number, addresses and orders), act on your account, or send that information to someone else. Installing one can cause serious harm.
+
+- Install this script only from the link on this page, which points to `raw.githubusercontent.com/H-MAli/mah-digikala-extensions/`. Don't install copies sent to you in a messenger, as a file, or from another website, even if they carry the same name, and don't paste in code you've been given.
+- After installing, open the script in the Tampermonkey dashboard and check that its **Homepage**, **Update URL** and **Download URL** point to `github.com/H-MAli/mah-digikala-extensions` (raw files come from `raw.githubusercontent.com/H-MAli/...`). If they point anywhere else, delete the script.
+- Before installing, Tampermonkey lists the sites the script may contact. This script only contacts the sites listed under [Permissions](#permissions). If a copy lists any other site, don't install it.
+- This script never asks for your password, one-time codes or payment details, and has no server of its own. Anything that asks for those isn't this script.
+- If you come across a modified copy, or think you've installed one, delete it, change your Digikala password if you use one, check your account's active sessions, and [report it](https://github.com/H-MAli/mah-digikala-extensions/issues).
+
+The same goes for every userscript and browser extension: use only those from sources you trust, and proceed with caution.
+
 ## Usage
 
 ### Table view
@@ -128,7 +140,7 @@ In the panel you can:
 - switch between Persian and Latin digits
 - export all of the script's data to a backup file, or restore it from one
 
-The **About** tab has links to this page, bug reports, the disclaimer and donations.
+The **About** tab repeats the [safety notice](#install-only-from-the-official-source) and has links to this page, bug reports, the disclaimer and donations.
 
 ## Permissions
 
