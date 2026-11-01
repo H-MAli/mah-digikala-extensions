@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.7.0
+// @version      1.7.1
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -1229,7 +1229,11 @@
       D + ' .dk-form-card .dk-label{background-color:var(--color-neutral-000)!important}',
       D + ' .dk-form-card a{color:#4fc3dc!important}',
       // product page: buy box, mini buy box, seller rows (component styles with hard-coded white / light grey)
-      D + ' [class*="__Marketable"],' + D + ' [class*="MiniBuyBox"]{background-color:' + n0 + '!important}',
+      D + ' [class*="__Marketable"]{background-color:' + n0 + '!important}',
+      // sticky mini buy box (wide screens): the box itself only, not its parts (the colour swatch keeps its colour)
+      // nor the V2 box, which uses the design-system colours. Its light gradient wash goes too.
+      D + ' [class*="__MiniBuyBox"]:not([class*="MiniBuyBox__"]):not([class*="MiniBuyBoxV2"]){background-color:' + n0 + '!important;background-image:none!important}',
+      D + ' [class*="MiniBuyBox__image"]{mix-blend-mode:normal!important}',
       D + ' [class*="InfoSection__buybox"]{background-image:none!important}',
       D + ' .bg-neutral-100[class*="MiniBuyBox"],' + D + ' [class*="SellerListItemDesktop__sellerListItem"]{background-color:var(--color-neutral-100)!important}',
       // dark tooltips (e.g. on "price chart"): white text on neutral-700, which the dark palette turns light grey.
