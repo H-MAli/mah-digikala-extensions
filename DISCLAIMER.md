@@ -91,7 +91,12 @@ This follows the approach many consumer-protection rules use for sale prices (fo
 
 ### 4.7 Hiding sponsored items
 
-When the user turns this on, the script hides items that Digikala itself marks as sponsored or advertised. It doesn't judge any item on its own.
+This option is off by default. When the user turns it on, the script hides items that Digikala itself marks as sponsored or advertised. It doesn't judge any item on its own.
+
+- On Digikala's pages, a product card is hidden when it carries Digikala's own ad badge, labelled "سفارشی".
+- In the table, a product is hidden when Digikala's list data marks it as an ad (`is_ad`). While the option is off, such products are shown with the same "سفارشی" label.
+- Nothing is removed from Digikala's pages; hidden cards reappear as soon as the option is turned off.
+- If Digikala changes how it marks sponsored items, some of them may stay visible.
 
 ## 5. Known limitations
 

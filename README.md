@@ -4,7 +4,7 @@
 
 A userscript that adds a few handy tools to [Digikala](https://www.digikala.com):
 
-- **Table view for product listings.** On the Incredible Offers page and on category, search, brand and seller pages, a new header button opens every item in one full-page table that you can sort, group and filter, and export to CSV.
+- **Table view for product listings.** On the Incredible Offers page and on category, search, brand and seller pages, a new header button opens every item in one full-page table that you can sort, group and filter, save as named views, and export to CSV.
 - **Dark mode.** A light / dark / system theme switch next to the notification bell, on every Digikala page (including the login and account pages).
 - **Price comparison.** On product pages, a button that looks the product up on Torob, Emalls and BaSalam, and on Amazon and eBay with prices converted to Toman.
 - **Watchlist and price alerts.** Follow products and get an alert when their price drops, reaches your target, or they're back in stock.
@@ -44,6 +44,8 @@ Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page,
   - **delivery**: from Digikala's warehouse, by Digikala or by the seller
   - **Jet** eligibility
   - **low stock**: "only N left", shown only when Digikala reports it
+- **Views** saves the current sort order, grouping, filters and visible columns under a name, so you can bring them back in any table later. The search text isn't part of a view. Mark one view with ★ to make it the default; it's applied whenever a table opens.
+- Items that Digikala marks as sponsored (سفارشی) carry the same label in the table. They can be hidden; see [Settings](#settings).
 - **Export CSV** saves exactly what the table currently shows, ready to open in Excel.
 
 ### Theme
@@ -102,6 +104,7 @@ In the panel you can:
 - choose how often prices are recorded, or delete all price records
 - choose which watchlist alerts you get, and whether they also appear as desktop notifications
 - choose which shops the price comparison searches
+- hide the products Digikala marks as sponsored (سفارشی), both on its pages and in the table (off by default)
 - set your own dollar rate
 - switch between Persian and Latin digits
 - export all of the script's data to a backup file, or restore it from one

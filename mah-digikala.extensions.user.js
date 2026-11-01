@@ -2,7 +2,7 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.9.1
+// @version      1.10.0
 // @author       Mohammad Ali Haghshenas
 // @license      Apache-2.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
@@ -82,6 +82,7 @@
     // watchlist alerts: price drop, back in stock, and whether to show them as desktop notifications too
     alerts: { drop: true, stock: true, desktop: false },
     table: { cols: {} }, // column picker: { key: true | false } over each column's default
+    hideAds: false, // hide the products Digikala itself marks as sponsored ("سفارشی"), on its pages and in the table
   };
   // Saved values over the defaults, one level deep, so settings added in later versions get their default.
   function mergeSettings(saved) {
@@ -235,6 +236,7 @@
       url: location.origin + path,
       img: /^https?:/.test(src) ? src : '',
       unit: unitPrice(title, price),
+      ad: !!a.querySelector('dds-icon[name="badge-ad"]'),
       score,
       price,
       old,
@@ -373,6 +375,7 @@
       jet: !!((p.digiplus && p.digiplus.is_jet_eligible) || (p.properties && p.properties.is_jet_eligible) || prov.includes('jet')),
       // only reported when few are left
       stock: typeof pr.marketable_stock === 'number' ? pr.marketable_stock : null,
+      ad: !!(p.properties && p.properties.is_ad), // sponsored
       url: location.origin + uri,
       img: im ? String(im) : '', // keep the site's own resize parameters (custom sizes are rejected by the CDN)
       score,
@@ -606,6 +609,22 @@
       display: flex; flex-direction: column; gap: 2px; }
     .cp[hidden] { display: none; }
     .cp label { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; white-space: nowrap; }
+    .vw { min-width: 280px; max-width: 340px; }
+    .vrow { display: flex; align-items: center; gap: 2px; }
+    .vrow .vname { flex: 1; min-width: 0; text-align: start; border: 0; background: none; padding: 6px 4px; border-radius: 6px;
+      color: var(--n700); font-weight: 700; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vrow .vname:hover { background: var(--n100); }
+    .vrow .vic { flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--n400);
+      font-size: 15px; line-height: 1; cursor: pointer; }
+    .vrow .vic:hover { background: var(--n100); color: var(--n700); }
+    .vrow .vic.on { color: #f9a825; }
+    .vsave { display: flex; gap: 6px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--n100); }
+    .vsave input { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--n200); border-radius: 8px; background: var(--bg);
+      padding: 0 10px; outline: none; color: var(--n700); }
+    .vsave input:focus { border-color: var(--n300); }
+    .vsave .btn { height: 32px; padding: 0 10px; }
+    .vnote { margin: 4px 0 0; color: var(--n500); font-size: 11px; line-height: 1.7; }
+    .adt { flex: none; padding: 0 6px; border-radius: 6px; background: var(--n100); color: var(--n500); font-size: 11px; line-height: 20px; }
     td.nw { white-space: nowrap; }
     td small { color: var(--n500); }
     .low { color: #b26a00; font-weight: 700; }
@@ -784,6 +803,14 @@
     { key: 'jet', label: 'فقط جت', fn: (r) => !!r.jet },
   ];
 
+  // Saved table views, shared by every table: { list: [{ id, name, sort, group, groupDesc, f, t, cols }], def: id | null }.
+  // The default view (def) is applied whenever a table opens.
+  const VIEWS_KEY = 'views';
+  const viewsAll = () => {
+    const v = store.get(VIEWS_KEY);
+    return v && Array.isArray(v.list) ? v : { list: [], def: null };
+  };
+
   /* ------------------------------------------------------------------ *
    * Table modal
    * ------------------------------------------------------------------ */
@@ -853,6 +880,10 @@
         <button class="btn" type="button" data-act="expand" hidden>باز کردن همه گروه‌ها</button>
         <span class="sp"></span>
         <div class="colpick">
+          <button class="btn" type="button" data-act="views" aria-expanded="false" title="ذخیره و بازکردن مرتب‌سازی، گروه‌بندی، فیلترها و ستون‌ها">نماها${svg('chevron', 16)}</button>
+          <div class="cp vw" hidden></div>
+        </div>
+        <div class="colpick">
           <button class="btn" type="button" data-act="cols" aria-expanded="false">ستون‌ها${svg('chevron', 16)}</button>
           <div class="cp" hidden>${allCols.filter((c) => c.opt).map((c) =>
             `<label><input type="checkbox" data-col="${c.key}"${colOn(c) ? ' checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>
@@ -886,6 +917,7 @@
     function applyCols() {
       cols = allCols.filter(colOn);
       fcols = cols.filter((c) => c.num);
+      wrap.querySelectorAll('input[data-col]').forEach((cb) => { cb.checked = colOn(allCols.find((c) => c.key === cb.dataset.col)); });
       $('thead tr').innerHTML = cols.map((c) => `<th data-key="${c.key}"></th>`).join('');
       const keep = {};
       wrap.querySelectorAll('input[data-f]').forEach((inp) => { keep[inp.dataset.f + '|' + inp.dataset.b] = inp.value; });
@@ -991,6 +1023,7 @@
       title: (r) =>
         `<td><div class="nm">${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy" decoding="async">` : '<i></i>'}` +
         `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` +
+        (r.ad ? '<span class="adt" title="دیجی‌کالا این کالا را «سفارشی» (تبلیغاتی) علامت زده است">سفارشی</span>' : '') +
         (hist ? `<button class="star${watched.has(r.id) ? ' on' : ''}" type="button" data-act="star" data-id="${esc(r.id)}" title="${watched.has(r.id) ? 'حذف از فهرست پیگیری' : 'افزودن به فهرست پیگیری'}">${watched.has(r.id) ? '★' : '☆'}</button>` : '') +
         '</div></td>',
       score: (r) => `<td class="num">${r.score == null ? dash : `<span class="rate">${svg('star', 14)}${fmtScore(r.score)}</span>`}</td>`,
@@ -1012,7 +1045,8 @@
 
     function currentList() {
       const q = st.q.trim().toLowerCase();
-      const list = rows.filter((r) => (!q || r.title.toLowerCase().includes(q)) && passesRanges(r));
+      const hideAds = settings().hideAds;
+      const list = rows.filter((r) => !(hideAds && r.ad) && (!q || r.title.toLowerCase().includes(q)) && passesRanges(r));
       list.sort(cmp);
       return list;
     }
@@ -1203,6 +1237,71 @@
       $('[data-act=gorder]').textContent = 'ترتیب گروه‌ها: ' + (st.groupDesc ? 'نزولی' : 'صعودی');
     };
 
+    /* ---- saved views (the search text is not part of a view) ---- */
+    function currentView(id, name) {
+      const f = {};
+      for (const k in st.f) if (rangeActive(st.f[k])) f[k] = { min: st.f[k].min, max: st.f[k].max };
+      const t = {};
+      for (const k in st.t) if (st.t[k]) t[k] = true;
+      const vc = {};
+      for (const c of allCols) if (c.opt) vc[c.key] = colOn(c);
+      return { id, name, sort: st.sort.map((x) => ({ key: x.key, dir: x.dir })), group: st.group, groupDesc: st.groupDesc, f, t, cols: vc };
+    }
+
+    function applyView(v) {
+      const cur = settings().table.cols;
+      if (Object.keys(v.cols || {}).some((k) => cur[k] !== v.cols[k])) updateSettings((s) => { Object.assign(s.table.cols, v.cols); });
+      applyCols();
+      wrap.querySelectorAll('input[data-f]').forEach((inp) => {
+        const r = (v.f || {})[inp.dataset.f];
+        const n = r ? r[inp.dataset.b] : null;
+        inp.value = n != null ? String(n) : '';
+      });
+      readFilters();
+      st.t = Object.assign({}, v.t);
+      wrap.querySelectorAll('input[data-tg]').forEach((inp) => { inp.checked = !!st.t[inp.dataset.tg]; });
+      st.sort = (v.sort || []).filter((x) => cols.some((c) => c.key === x.key && c.sortable !== false));
+      st.group = GROUPERS[v.group] ? v.group : 'none';
+      st.groupDesc = !!v.groupDesc;
+      $('[data-grp]').value = st.group;
+      st.collapsed.clear();
+      syncGroupUi();
+      render();
+    }
+
+    // Saving under an existing name replaces that view.
+    function saveView() {
+      const inp = $('[data-vname]');
+      const name = String(inp.value || '').trim().slice(0, 40);
+      if (!name) { inp.focus(); return; }
+      const V = viewsAll();
+      const i = V.list.findIndex((v) => v.name === name);
+      const v = currentView(i === -1 ? Date.now().toString(36) : V.list[i].id, name);
+      if (i === -1) V.list.push(v); else V.list[i] = v;
+      store.set(VIEWS_KEY, V);
+      renderViews('نمای «' + name + '» ذخیره شد.');
+    }
+
+    function renderViews(msg) {
+      const V = viewsAll();
+      $('.vw').innerHTML =
+        (V.list.length ? V.list.map((v) => {
+          const def = V.def === v.id;
+          return `<div class="vrow"><button class="vname" type="button" data-act="vapply" data-id="${esc(v.id)}" title="اعمال این نما">${esc(v.name)}</button>` +
+            `<button class="vic${def ? ' on' : ''}" type="button" data-act="vdef" data-id="${esc(v.id)}" title="${def ? 'نمای پیش‌فرض است (برای لغو کلیک کنید)' : 'نمای پیش‌فرض هنگام باز شدن جدول'}">${def ? '★' : '☆'}</button>` +
+            `<button class="vic" type="button" data-act="vdel" data-id="${esc(v.id)}" title="حذف این نما">×</button></div>`;
+        }).join('') : '<p class="vnote">هنوز نمایی ذخیره نشده است.</p>') +
+        '<div class="vsave"><input type="text" data-vname maxlength="40" placeholder="نام نمای تازه">' +
+        '<button class="btn" type="button" data-act="vsave">ذخیره‌ی وضعیت فعلی</button></div>' +
+        `<p class="vnote">${msg ? esc(msg) : 'هر نما مرتب‌سازی، گروه‌بندی، فیلترها و ستون‌های نمایش‌داده‌شده را نگه می‌دارد. نمای ★ هنگام باز شدن جدول اعمال می‌شود.'}</p>`;
+    }
+
+    const closePicker = (act) => {
+      const p = $(`[data-act=${act}]`);
+      p.setAttribute('aria-expanded', 'false');
+      p.parentElement.querySelector('.cp').hidden = true;
+    };
+
     wrap.addEventListener('click', (e) => {
       const th = e.target.closest('th[data-key]');
       if (th && !th.classList.contains('nosort')) { toggleSort(th.dataset.key, e.shiftKey); render(); return; }
@@ -1215,14 +1314,43 @@
         return;
       }
       const act = e.target.closest('[data-act]');
-      const cp = $('.cp');
-      if (!cp.hidden && !e.target.closest('.colpick')) { cp.hidden = true; $('[data-act=cols]').setAttribute('aria-expanded', 'false'); }
+      // a click outside an open drop-down (views, columns) closes it
+      wrap.querySelectorAll('.colpick').forEach((pk) => {
+        const p = pk.querySelector('.cp');
+        if (!p.hidden && !pk.contains(e.target)) { p.hidden = true; pk.querySelector('[aria-expanded]').setAttribute('aria-expanded', 'false'); }
+      });
       if (!act) return;
       switch (act.dataset.act) {
         case 'cols':
-          cp.hidden = !cp.hidden;
-          act.setAttribute('aria-expanded', String(!cp.hidden));
+        case 'views': {
+          const p = act.parentElement.querySelector('.cp');
+          p.hidden = !p.hidden;
+          act.setAttribute('aria-expanded', String(!p.hidden));
+          if (!p.hidden && act.dataset.act === 'views') renderViews();
           break;
+        }
+        case 'vapply': {
+          const v = viewsAll().list.find((x) => x.id === act.dataset.id);
+          closePicker('views');
+          if (v) applyView(v);
+          break;
+        }
+        case 'vdef': {
+          const V = viewsAll();
+          V.def = V.def === act.dataset.id ? null : act.dataset.id;
+          store.set(VIEWS_KEY, V);
+          renderViews();
+          break;
+        }
+        case 'vdel': {
+          const V = viewsAll();
+          V.list = V.list.filter((x) => x.id !== act.dataset.id);
+          if (V.def === act.dataset.id) V.def = null;
+          store.set(VIEWS_KEY, V);
+          renderViews();
+          break;
+        }
+        case 'vsave': saveView(); break;
         case 'close': close(); break;
         case 'csv': exportCsv(); break;
         case 'dcheck': checkDiscounts(); break;
@@ -1282,6 +1410,10 @@
       }
     });
 
+    wrap.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-vname]')) saveView();
+    });
+
     // Range filters: Persian / Arabic / Latin digits and thousands separators are all accepted.
     let ft;
     wrap.addEventListener('input', (e) => {
@@ -1291,8 +1423,33 @@
     });
 
     syncGroupUi();
-    render();
+    const V = viewsAll();
+    const dv = V.list.find((v) => v.id === V.def);
+    if (dv) applyView(dv);
+    else render();
     syncMoreUi();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Hiding sponsored products (see DISCLAIMER.md, section 4.7): the cards
+   * that carry Digikala's own ad badge ("سفارشی"), in lists and carousels.
+   * ------------------------------------------------------------------ */
+  const ADS_ATTR = 'data-mah-hide-ads'; // set on <html> while the setting is on
+  const ADS_STYLE_ID = 'mah-dk-ads-style';
+  function applyHideAds() {
+    const html = document.documentElement;
+    if (!html) return;
+    if (!document.getElementById(ADS_STYLE_ID)) {
+      const st = document.createElement('style');
+      st.id = ADS_STYLE_ID;
+      const H = 'html[' + ADS_ATTR + '] ';
+      const AD = ':has(dds-icon[name="badge-ad"])';
+      st.textContent = [H + '[class*="__ProductList__item"]' + AD, H + '.swiper-slide' + AD, H + 'a[href*="/product/dkp-"]' + AD].join(',') +
+        '{display:none!important}';
+      html.appendChild(st);
+    }
+    const on = !!settings().hideAds;
+    if (html.hasAttribute(ADS_ATTR) !== on) html.toggleAttribute(ADS_ATTR, on);
   }
 
   /* ------------------------------------------------------------------ *
@@ -3469,6 +3626,9 @@
       `<label class="row sm">${checkbox('data-alert="desktop"', st.alerts.desktop, !feature('history'))}<span>نمایش هشدارها به‌صورت اعلان دسکتاپ هم</span></label>` +
       '<p class="note">هشدار رسیدن به قیمت هدف همیشه فعال است؛ قیمت هدف هر کالا را در فهرست پیگیری وارد کنید. ' +
       'هشدارها فقط وقتی صادر می‌شوند که زبانه‌ای از دیجی‌کالا باز باشد.</p></section>';
+    h += '<section><h3>کالاهای تبلیغاتی</h3>' +
+      `<label class="row">${checkbox('data-hideads', st.hideAds)}<span><b>پنهان کردن کالاهای «سفارشی»</b>` +
+      '<small>کالاهایی که خود دیجی‌کالا با برچسب «سفارشی» (تبلیغاتی) نشان می‌دهد، در صفحه‌های سایت و در جدول کالاها پنهان می‌شوند.</small></span></label></section>';
     h += '<section><h3>نمایش اعداد</h3><div class="shops">' +
       `<label class="row sm"><input type="radio" name="digits" value="fa"${st.digits !== 'en' ? ' checked' : ''}><span>فارسی (۱۲۳)</span></label>` +
       `<label class="row sm"><input type="radio" name="digits" value="en"${st.digits === 'en' ? ' checked' : ''}><span>لاتین (123)</span></label>` +
@@ -3728,6 +3888,8 @@
         updateSettings((s) => { s.history.freq = t.value; });
       } else if (t.dataset.alert) {
         updateSettings((s) => { s.alerts[t.dataset.alert] = t.checked; });
+      } else if (t.matches('[data-hideads]')) {
+        updateSettings((s) => { s.hideAds = t.checked; });
       } else if (t.dataset.target) {
         wlSetTarget(t.dataset.target, t.value);
       } else if (t.matches('[data-usd]')) {
@@ -3930,8 +4092,9 @@
 
   function init() {
     initTheme();
+    applyHideAds();
     // a change in the settings (here or in another tab) applies right away
-    settingsListeners.push(() => { applyTheme(); ensureButtons(); });
+    settingsListeners.push(() => { applyTheme(); applyHideAds(); ensureButtons(); });
     if (window.top === window) {
       try { GM_registerMenuCommand('تنظیمات و درباره‌ی افزونه', () => showPanel('settings')); } catch (e) { /* not supported */ }
     }
@@ -3939,7 +4102,7 @@
     let timer = null;
     new MutationObserver(() => {
       if (timer) return;
-      timer = setTimeout(() => { timer = null; applyTheme(); ensureButtons(); }, 300);
+      timer = setTimeout(() => { timer = null; applyTheme(); applyHideAds(); ensureButtons(); }, 300);
     }).observe(document.documentElement, { childList: true, subtree: true });
     ensureButtons();
     window.addEventListener('load', () => setTimeout(ensureButtons, 500));
