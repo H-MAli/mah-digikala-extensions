@@ -38,7 +38,8 @@ Go to the [Incredible Offers](https://www.digikala.com/incredible-offers/) page,
 - Click a column header to sort by it.
 - Group items by rating, discount percent, price range or discount amount.
 - Combine several filters to narrow the list, including the quick filters **low stock only**, **Digikala delivery only** and **Jet only**.
-- **Columns** chooses which columns are shown, and remembers your choice. Besides the price columns there are:
+- The panel next to the table lists every column; tick the ones you want to see, or use **All** / **Default**. The **Columns** button shows or hides the panel. Your choice is remembered. Besides the price columns there are:
+  - **lowest price last month**: Digikala's own figure for the product's lowest price in the past month, as it reports it in its list data
   - **unit price**: per kilogram, litre or item, worked out from the size in the product's title. Sorting compares kilograms with kilograms and litres with litres.
   - **seller** and **seller rating**
   - **delivery**: from Digikala's warehouse, by Digikala or by the seller
@@ -136,7 +137,9 @@ If the script is useful to you, you can buy me a coffee at **[coffeete.ir/hmali]
 
 ## License
 
-[Apache License 2.0](LICENSE). You're free to use, modify and share the script, including in your own projects, as long as you credit the original author: keep the copyright notice and the contents of the [NOTICE](NOTICE) file with any copy or modified version, and mark the files you changed.
+[PolyForm Noncommercial License 1.0.0](LICENSE). You're free to use, modify and share the script for any **noncommercial** purpose, such as personal use, study, hobby projects, or use by charities, schools and public bodies. Whenever you pass on a copy, changed or not, include the license and the "Required Notice" line that credits the original author (see [NOTICE](NOTICE)).
+
+Commercial use, such as selling the script, bundling it into a paid product or using it to run a business, isn't allowed. If you'd like to use it commercially, contact me through my [GitHub profile](https://github.com/H-MAli).
 
 ## Disclaimer
 

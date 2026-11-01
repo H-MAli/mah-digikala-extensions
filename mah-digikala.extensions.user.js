@@ -2,9 +2,9 @@
 // @name         MAH Digikala Extensions
 // @name:fa      افزونه‌های MAH دیجی‌کالا
 // @namespace    https://mah.local/digikala
-// @version      1.10.0
+// @version      1.11.0
 // @author       Mohammad Ali Haghshenas
-// @license      Apache-2.0
+// @license      PolyForm-Noncommercial-1.0.0
 // @copyright    2026, Mohammad Ali Haghshenas (https://github.com/H-MAli)
 // @homepageURL  https://github.com/H-MAli/mah-digikala-extensions
 // @supportURL   https://github.com/H-MAli/mah-digikala-extensions/issues
@@ -81,7 +81,8 @@
     history: { freq: 'daily' },
     // watchlist alerts: price drop, back in stock, and whether to show them as desktop notifications too
     alerts: { drop: true, stock: true, desktop: false },
-    table: { cols: {} }, // column picker: { key: true | false } over each column's default
+    // column picker: { key: true | false } over each column's default; side: the column panel next to the table is open
+    table: { cols: {}, side: true },
     hideAds: false, // hide the products Digikala itself marks as sponsored ("سفارشی"), on its pages and in the table
   };
   // Saved values over the defaults, one level deep, so settings added in later versions get their default.
@@ -376,6 +377,8 @@
       // only reported when few are left
       stock: typeof pr.marketable_stock === 'number' ? pr.marketable_stock : null,
       ad: !!(p.properties && p.properties.is_ad), // sponsored
+      // Digikala's own figure (Rials; 0 when it gives none)
+      minMonth: p.properties && p.properties.min_price_in_last_month > 0 ? p.properties.min_price_in_last_month / 10 : null,
       url: location.origin + uri,
       img: im ? String(im) : '', // keep the site's own resize parameters (custom sizes are rejected by the CDN)
       score,
@@ -602,13 +605,25 @@
     .filters .btn { height: 36px; padding: 0 12px; color: var(--p); }
     .rngs { display: contents; }
     .tg { display: inline-flex; align-items: center; gap: 6px; color: var(--n600); cursor: pointer; }
-    .tg input, .cp input { width: 15px; height: 15px; margin: 0; accent-color: var(--p); }
+    .tg input, .side input { width: 15px; height: 15px; margin: 0; accent-color: var(--p); flex: none; }
     .colpick { position: relative; }
     .cp { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 5; min-width: 220px; padding: 8px 12px;
       background: var(--bg); border: 1px solid var(--n200); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14);
       display: flex; flex-direction: column; gap: 2px; }
     .cp[hidden] { display: none; }
-    .cp label { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; white-space: nowrap; }
+    .btn[aria-pressed="true"] { border-color: var(--n300); background: var(--n100); }
+
+    /* table and the column panel beside it */
+    .main { flex: 1; min-height: 0; display: flex; }
+    .side { flex: none; width: 240px; overflow: auto; padding: 12px 16px 24px; border-inline-start: 1px solid var(--n200); }
+    .side-h { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+    .side-h b { flex: 1; font-size: 13px; }
+    .side .link { border: 0; background: none; color: var(--p); font-weight: 700; cursor: pointer; padding: 0 4px; }
+    .side label { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; cursor: pointer; }
+    .side label input { margin-top: 4px; }
+    .side label span { display: flex; flex-direction: column; }
+    .side label small { color: var(--n500); font-size: 11px; line-height: 1.6; }
+    .side .vnote { margin-top: 10px; }
     .vw { min-width: 280px; max-width: 340px; }
     .vrow { display: flex; align-items: center; gap: 2px; }
     .vrow .vname { flex: 1; min-width: 0; text-align: start; border: 0; background: none; padding: 6px 4px; border-radius: 6px;
@@ -631,7 +646,7 @@
     .jet { display: inline-block; padding: 0 8px; border-radius: 6px; background: var(--n100); font-weight: 700; line-height: 22px; }
 
     /* scroll container is LTR so the scrollbar stays on the right, like the site */
-    .scroll { flex: 1; overflow: auto; padding: 0 var(--pad) 40px; direction: ltr; }
+    .scroll { flex: 1; min-width: 0; overflow: auto; padding: 0 var(--pad) 40px; direction: ltr; }
     table { width: 100%; border-collapse: separate; border-spacing: 0; direction: rtl; }
     th:nth-child(1), td.idx { width: 56px; }
     th:nth-child(n+3) { min-width: 110px; }
@@ -773,7 +788,7 @@
   };
 
   // num: numeric, gets a min/max range filter automatically (the title is filtered with the search box)
-  // opt: can be hidden with the column picker; on: shown by default
+  // opt: can be hidden with the column picker; on: shown by default; hint: tooltip / note in the column panel
   const COLS = [
     { key: 'idx', label: '#', sortable: false },
     { key: 'title', label: 'نام کالا' },
@@ -782,6 +797,8 @@
     { key: 'old', label: 'قیمت قبل از تخفیف (تومان)', num: true, opt: true, on: true },
     { key: 'pct', label: 'درصد تخفیف', num: true, opt: true, on: true },
     { key: 'offAmt', label: 'مبلغ تخفیف (تومان)', num: true, opt: true, on: true },
+    { key: 'minMonth', label: 'کمترین قیمت ماه گذشته (تومان)', num: true, opt: true, on: true,
+      hint: 'رقمی که خود دیجی‌کالا برای کمترین قیمت این کالا در یک ماه گذشته اعلام می‌کند' },
     { key: 'unit', label: 'قیمت واحد (تومان)', opt: true, on: true },
     { key: 'seller', label: 'فروشنده', opt: true },
     { key: 'sellerRate', label: 'امتیاز فروشنده', num: true, opt: true },
@@ -850,6 +867,7 @@
       return side === 'min' ? 'از ' + f(b.lo) : 'تا ' + f(b.hi);
     };
 
+    const sideOn = settings().table.side !== false;
     const wrap = document.createElement('div');
     wrap.className = 'modal';
     wrap.setAttribute('dir', 'rtl');
@@ -883,22 +901,30 @@
           <button class="btn" type="button" data-act="views" aria-expanded="false" title="ذخیره و بازکردن مرتب‌سازی، گروه‌بندی، فیلترها و ستون‌ها">نماها${svg('chevron', 16)}</button>
           <div class="cp vw" hidden></div>
         </div>
-        <div class="colpick">
-          <button class="btn" type="button" data-act="cols" aria-expanded="false">ستون‌ها${svg('chevron', 16)}</button>
-          <div class="cp" hidden>${allCols.filter((c) => c.opt).map((c) =>
-            `<label><input type="checkbox" data-col="${c.key}"${colOn(c) ? ' checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>
-        </div>
+        <button class="btn" type="button" data-act="cols" aria-pressed="${sideOn}" title="نمایش یا پنهان کردن فهرست ستون‌ها کنار جدول">ستون‌ها</button>
       </div>
       <div class="filters">
         <div class="rngs"></div>
         ${TOGGLES.map((t) => `<label class="tg"><input type="checkbox" data-tg="${t.key}"><span>${esc(t.label)}</span></label>`).join('')}
         <button class="btn" type="button" data-act="clear" hidden></button>
       </div>
-      <div class="scroll">
-        <table>
-          <thead><tr></tr></thead>
-          <tbody></tbody>
-        </table>
+      <div class="main">
+        <div class="scroll">
+          <table>
+            <thead><tr></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <aside class="side"${sideOn ? '' : ' hidden'} aria-label="ستون‌ها">
+          <div class="side-h"><b>ستون‌ها</b>
+            <button class="link" type="button" data-act="colsall">همه</button>
+            <button class="link" type="button" data-act="colsdef">پیش‌فرض</button>
+          </div>
+          ${allCols.filter((c) => c.opt).map((c) =>
+            `<label><input type="checkbox" data-col="${c.key}"${colOn(c) ? ' checked' : ''}>` +
+            `<span>${esc(c.label)}${c.hint ? `<small>${esc(c.hint)}</small>` : ''}</span></label>`).join('')}
+          <p class="vnote">انتخاب ستون‌ها به خاطر سپرده می‌شود و در خروجی CSV هم اعمال می‌شود.</p>
+        </aside>
       </div>
       <div class="more">
         <span class="mspin" data-spin hidden></span>
@@ -973,6 +999,7 @@
             `<span class="si">${i === -1 ? svg('sort', 16) : svg(st.sort[i].dir === 1 ? 'up' : 'down', 16)}` +
             `${i !== -1 && st.sort.length > 1 ? `<span class="ord">${L(i + 1)}</span>` : ''}</span>`;
         }
+        th.title = col.hint || '';
         th.innerHTML = `<span class="h">${esc(col.label)}${ind}</span>`;
       });
     }
@@ -1031,6 +1058,7 @@
       old: (r) => `<td class="num old">${r.old == null ? dash : fmt(r.old)}</td>`,
       pct: (r) => `<td class="num">${r.pct ? `<span class="pill">${L(r.pct)}${PCT}</span>` : dash}</td>`,
       offAmt: (r) => `<td class="num">${r.offAmt == null ? dash : fmt(r.offAmt)}</td>`,
+      minMonth: (r) => `<td class="num">${r.minMonth == null ? dash : fmt(r.minMonth)}</td>`,
       unit: (r) => `<td class="nw">${r.unit ? `<b>${fmt(r.unit.v)}</b> <small>هر ${UNIT_LABEL[r.unit.u]}</small>` : dash}</td>`,
       seller: (r) => `<td>${r.seller ? esc(r.seller) : dash}</td>`,
       sellerRate: (r) => `<td class="num">${r.sellerRate == null ? dash : `<span class="rate">${svg('star', 14)}${fmtScore(r.sellerRate)}</span>`}</td>`,
@@ -1314,21 +1342,36 @@
         return;
       }
       const act = e.target.closest('[data-act]');
-      // a click outside an open drop-down (views, columns) closes it
+      // a click outside an open drop-down (views) closes it
       wrap.querySelectorAll('.colpick').forEach((pk) => {
         const p = pk.querySelector('.cp');
         if (!p.hidden && !pk.contains(e.target)) { p.hidden = true; pk.querySelector('[aria-expanded]').setAttribute('aria-expanded', 'false'); }
       });
       if (!act) return;
       switch (act.dataset.act) {
-        case 'cols':
         case 'views': {
           const p = act.parentElement.querySelector('.cp');
           p.hidden = !p.hidden;
           act.setAttribute('aria-expanded', String(!p.hidden));
-          if (!p.hidden && act.dataset.act === 'views') renderViews();
+          if (!p.hidden) renderViews();
           break;
         }
+        case 'cols': {
+          const side = $('.side');
+          side.hidden = !side.hidden;
+          act.setAttribute('aria-pressed', String(!side.hidden));
+          updateSettings((s) => { s.table.side = !side.hidden; });
+          break;
+        }
+        case 'colsall':
+        case 'colsdef':
+          updateSettings((s) => {
+            s.table.cols = {};
+            if (act.dataset.act === 'colsall') for (const c of allCols) if (c.opt) s.table.cols[c.key] = true;
+          });
+          applyCols();
+          render();
+          break;
         case 'vapply': {
           const v = viewsAll().list.find((x) => x.id === act.dataset.id);
           closePicker('views');
@@ -1617,6 +1660,8 @@
       D + ' .bg-dds-fixed-white{background-color:var(--dds_mode_surface_1)!important}',
       // category list of the mega menu (hard-coded light grey): darker than the active row
       D + ' [class*="MainMegaMenu__mainCategoriesSection"]:not([class*="SectionItem"]){background-color:#151a24!important}',
+      // navy text (#0d4485, e.g. "all products of ..." in the mega menu) is hard to read on dark: a lighter blue
+      D + ' .text-secondary-700,' + D + ' .\\!text-secondary-700{color:#5fb4ee!important}',
       // grey partner logos in the footer
       D + ' footer [class*="partnersSectionItem"] img{filter:brightness(0) invert(1);opacity:.75}',
     ].join('\n');
@@ -3702,14 +3747,14 @@
     const link = (url, text) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
     return '<div class="about">' +
       `<div class="name"><b>افزونه‌های MAH دیجی‌کالا</b><span class="chip" dir="ltr">v${esc(scriptVersion())}</span></div>` +
-      '<p>ساخته‌ی محمدعلی حق‌شناس. این افزونه پروژه‌ای مستقل، غیررسمی، رایگان و متن‌باز است و هیچ ارتباطی با دیجی‌کالا ندارد. ' +
+      '<p>ساخته‌ی محمدعلی حق‌شناس. این افزونه پروژه‌ای مستقل، غیررسمی و رایگان با کد منبع آزاد برای استفاده‌ی غیرتجاری است و هیچ ارتباطی با دیجی‌کالا ندارد. ' +
       'هر آنچه نشان می‌دهد اطلاعاتی است که به‌طور خودکار و فقط برای استفاده‌ی شخصی شما تولید می‌شود؛ پیش از هر تصمیمی، آن را در خود سایت بررسی کنید.</p>' +
       '<ul class="links">' +
       `<li>${link(DISCLAIMER_URL, 'سلب مسئولیت و روش کار')}</li>` +
       `<li>${link(REPO_URL, 'صفحه‌ی پروژه در گیت‌هاب')}</li>` +
       `<li>${link(REPO_URL + '/issues', 'گزارش اشکال یا پیشنهاد')}</li>` +
       `<li>${link(DONATE_URL, 'حمایت از پروژه در کافیته')}</li>` +
-      `<li>مجوز: ${link(REPO_URL + '/blob/main/LICENSE', 'Apache 2.0')}</li>` +
+      `<li>مجوز: ${link(REPO_URL + '/blob/main/LICENSE', 'PolyForm Noncommercial 1.0.0')} (فقط استفاده‌ی غیرتجاری)</li>` +
       '</ul></div>';
   }
 

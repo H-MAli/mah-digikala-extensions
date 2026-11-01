@@ -6,7 +6,7 @@ Please read this before using MAH Digikala Extensions ("the script"). By install
 
 ## 1. Independent project
 
-- The script is an independent, unofficial, free and open-source project by a single developer.
+- The script is an independent, unofficial and free project by a single developer. Its source code is public and may be used for noncommercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 - It is **not affiliated with, endorsed by, sponsored by or connected to** Digikala (دیجی‌کالا) or any of the other websites it mentions or contacts, including Torob, Emalls, BaSalam, Amazon, eBay, Google and open.er-api.com.
 - "Digikala" and all other names, logos and trademarks belong to their respective owners. They are used only to describe what the script works with.
 
@@ -21,7 +21,7 @@ Everything the script shows is **automatically generated information for the use
 
 ## 3. No warranty, no liability
 
-- The script is provided **"as is", without warranty of any kind**, as stated in the [Apache License 2.0](LICENSE).
+- The script is provided **"as is", without warranty of any kind**, as stated in the [PolyForm Noncommercial License 1.0.0](LICENSE).
 - The author is **not responsible** for any loss, damage, cost or claim that results from using the script or relying on what it shows. This covers purchases made or not made, incorrect prices or matches, missed alerts, data loss, and any action a website takes on the user's account or connection.
 - You use the script at your own risk.
 
@@ -32,6 +32,7 @@ This section describes exactly how the script produces each piece of information
 ### 4.1 Where the data comes from
 
 - **Digikala product and list data.** The script reads it from the same public endpoints Digikala's own pages use (`api.digikala.com`), requested from the user's own browser tab on www.digikala.com. It never uses anyone else's account, and it doesn't send the user's login or cookies to any other website.
+- **Digikala's "lowest price last month".** The table's column of that name shows the figure Digikala includes in its own list data (`min_price_in_last_month`), as it is. The script doesn't calculate or check it.
 - **Digikala's price chart.** This is the daily price history Digikala itself publishes in its "نمودار قیمت" (price chart) window. For each day it has a selling price, a reference ("before discount") price and whether the product was available. The script shows this data as published and doesn't change it.
 - **The script's own price records.** The script saves a record when the user opens a product page, and when it checks a product on the user's watchlist on the schedule the user picked in settings. Each record holds:
   - the date and time
